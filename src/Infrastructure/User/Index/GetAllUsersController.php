@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Manager\Infrastructure\User\Index;
 
 use Illuminate\Http\JsonResponse;
-use Manager\Application\User\Queries\GetAllUsersQuery;
+use Manager\Application\User\Searcher\GetAllUsersQuery;
 use Manager\Application\User\UserResponse;
 use Manager\Shared\ApiBaseController;
 use Manager\Shared\Domain\Bus\Query\QueryBus;

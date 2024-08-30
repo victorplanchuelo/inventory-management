@@ -50,12 +50,13 @@ RUN apt-get update \
     && apt-get install -y yarn \
     && apt-get install -y $MYSQL_CLIENT \
     && apt-get install -y postgresql-client-$POSTGRES_VERSION \
-    && php -v \
-    && apt-get -y autoremove \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+    && php -v
 
-RUN ln -s /usr/bin/php8.3 /usr/bin/php \
+RUN apt-get -y autoremove \
+        && apt-get clean \
+        && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+RUN ln -snf /usr/bin/php8.3 /usr/bin/php \
     && update-alternatives --install /usr/bin/php php /usr/bin/php8.3 1 \
     && update-alternatives --set php /usr/bin/php8.3
 

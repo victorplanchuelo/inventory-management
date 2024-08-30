@@ -2,9 +2,8 @@
 
 declare(strict_types=1);
 
-namespace Manager\Application\User\Queries;
+namespace Manager\Application\User\Searcher;
 
-use Manager\Application\User\Searcher\AllUsersSearcher;
 use Manager\Application\User\UsersResponse;
 use Manager\Shared\Domain\Bus\Query\QueryHandler;
 

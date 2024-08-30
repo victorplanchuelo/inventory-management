@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Manager\Application\User\Commands;
+namespace Manager\Application\User\Creator;
 
 use Manager\Shared\Domain\Bus\Command\Command;
 
-final readonly class PostCreateUserCommand implements Command
+final readonly class CreateUserCommand implements Command
 {
 	public function __construct(public string $name, public string $email, public string $password) {}
 
