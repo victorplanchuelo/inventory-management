@@ -4,17 +4,17 @@ declare(strict_types=1);
 
 namespace Tests\Shared\Infrastructure\PhpUnit\Constraint;
 
+use PHPUnit\Framework\Constraint\Constraint;
+use PHPUnit\Framework\ExpectationFailedException;
+use SebastianBergmann\Comparator\ComparisonFailure;
+use SebastianBergmann\Comparator\Factory;
+use SebastianBergmann\Exporter\Exporter;
 use Tests\Shared\Infrastructure\PhpUnit\Comparator\AggregateRootArraySimilarComparator;
 use Tests\Shared\Infrastructure\PhpUnit\Comparator\AggregateRootSimilarComparator;
 use Tests\Shared\Infrastructure\PhpUnit\Comparator\DateTimeSimilarComparator;
 use Tests\Shared\Infrastructure\PhpUnit\Comparator\DateTimeStringSimilarComparator;
 use Tests\Shared\Infrastructure\PhpUnit\Comparator\DomainEventArraySimilarComparator;
 use Tests\Shared\Infrastructure\PhpUnit\Comparator\DomainEventSimilarComparator;
-use PHPUnit\Framework\Constraint\Constraint;
-use PHPUnit\Framework\ExpectationFailedException;
-use SebastianBergmann\Comparator\ComparisonFailure;
-use SebastianBergmann\Comparator\Factory;
-use SebastianBergmann\Exporter\Exporter;
 
 use function is_string;
 use function sprintf;
@@ -71,7 +71,7 @@ final class ConstraintIsSimilar extends Constraint
 			$delta = sprintf(' with delta <%F>', $this->delta);
 		}
 
-        $exporter = new Exporter();
+		$exporter = new Exporter();
 		return sprintf('is equal to %s%s', $exporter->export($this->value), $delta);
 	}
 }

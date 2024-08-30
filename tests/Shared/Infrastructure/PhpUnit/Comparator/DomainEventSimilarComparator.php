@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace Tests\Shared\Infrastructure\PhpUnit\Comparator;
 
 use Manager\Shared\Domain\Bus\Event\DomainEvent;
-use Tests\Shared\Domain\TestUtils;
 use ReflectionObject;
 use SebastianBergmann\Comparator\Comparator;
 use SebastianBergmann\Comparator\ComparisonFailure;
 use SebastianBergmann\Exporter\Exporter;
+use Tests\Shared\Domain\TestUtils;
 
 final class DomainEventSimilarComparator extends Comparator
 {
@@ -27,7 +27,7 @@ final class DomainEventSimilarComparator extends Comparator
 		if (!$this->areSimilar($expected, $actual)) {
 			$exporter = new Exporter();
 
-            throw new ComparisonFailure(
+			throw new ComparisonFailure(
 				$expected,
 				$actual,
 				$exporter->export($expected),

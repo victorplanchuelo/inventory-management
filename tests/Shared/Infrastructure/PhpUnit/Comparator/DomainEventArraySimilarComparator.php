@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Tests\Shared\Infrastructure\PhpUnit\Comparator;
 
 use Manager\Shared\Domain\Bus\Event\DomainEvent;
-use SebastianBergmann\Exporter\Exporter;
-use Tests\Shared\Domain\TestUtils;
 use SebastianBergmann\Comparator\Comparator;
 use SebastianBergmann\Comparator\ComparisonFailure;
+use SebastianBergmann\Exporter\Exporter;
+use Tests\Shared\Domain\TestUtils;
 
 use function Lambdish\Phunctional\all;
 use function Lambdish\Phunctional\any;
@@ -27,8 +27,8 @@ final class DomainEventArraySimilarComparator extends Comparator
 	public function assertEquals($expected, $actual, $delta = 0.0, $canonicalize = false, $ignoreCase = false): void
 	{
 		if (!$this->contains($expected, $actual) || count($expected) !== count($actual)) {
-            $exporter = new Exporter();
-            throw new ComparisonFailure(
+			$exporter = new Exporter();
+			throw new ComparisonFailure(
 				$expected,
 				$actual,
 				$exporter->export($expected),

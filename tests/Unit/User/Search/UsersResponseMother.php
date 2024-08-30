@@ -7,7 +7,6 @@ namespace Tests\Unit\User\Search;
 use Manager\Application\User\UserResponse;
 use Manager\Application\User\UsersResponse;
 
-
 final class UsersResponseMother
 {
 	public static function create(

@@ -17,7 +17,7 @@ final class CreateUserCommandMother
 	public static function create(
 		?UserName $name = null,
 		?UserEmail $email = null,
-        ?UserPassword $password = null
+		?UserPassword $password = null
 	): CreateUserCommand {
 		return new CreateUserCommand(
 			$name?->value() ?? UserNameMother::create()->value(),

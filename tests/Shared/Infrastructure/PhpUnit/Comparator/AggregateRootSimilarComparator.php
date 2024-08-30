@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace Tests\Shared\Infrastructure\PhpUnit\Comparator;
 
 use Manager\Shared\Domain\Aggregate\AggregateRoot;
-use SebastianBergmann\Exporter\Exporter;
-use Tests\Shared\Domain\TestUtils;
 use ReflectionObject;
 use SebastianBergmann\Comparator\Comparator;
 use SebastianBergmann\Comparator\ComparisonFailure;
+use SebastianBergmann\Exporter\Exporter;
+use Tests\Shared\Domain\TestUtils;
 
 final class AggregateRootSimilarComparator extends Comparator
 {
@@ -26,9 +26,9 @@ final class AggregateRootSimilarComparator extends Comparator
 		$actualEntity->pullDomainEvents();
 
 		if (!$this->aggregateRootsAreSimilar($expected, $actualEntity)) {
-            $exporter = new Exporter();
+			$exporter = new Exporter();
 
-            throw new ComparisonFailure(
+			throw new ComparisonFailure(
 				$expected,
 				$actual,
 				$exporter->export($expected),

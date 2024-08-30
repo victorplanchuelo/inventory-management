@@ -15,9 +15,9 @@ abstract class InfrastructureTestCase extends TestCase
 		TestUtils::assertSimilar($expected, $actual);
 	}
 
-    /** @param int<0, max> $timeToWaitOnErrorInSeconds
-     * @throws Throwable
-     */
+	/** @param int<0, max> $timeToWaitOnErrorInSeconds
+	 * @throws Throwable
+	 */
 	protected function eventually(
 		callable $fn,
 		int $totalRetries = 3,

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Manager\Application\User\Creator;
 
-use Illuminate\Support\Facades\Hash;
 use Manager\Domain\User\ValueObjects\UserEmail;
 use Manager\Domain\User\ValueObjects\UserName;
 use Manager\Domain\User\ValueObjects\UserPassword;

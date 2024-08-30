@@ -10,16 +10,16 @@ use Manager\Shared\Domain\Bus\Event\EventBus;
 use Manager\Shared\Domain\Bus\Query\Query;
 use Manager\Shared\Domain\Bus\Query\Response;
 use Manager\Shared\Domain\UuidGenerator;
-use Tests\Shared\Domain\TestUtils;
 use Mockery;
 use Mockery\Matcher\MatcherInterface;
 use Mockery\MockInterface;
+use Tests\Shared\Domain\TestUtils;
 use Throwable;
 
 abstract class UnitTestCase extends LaravelUnitTestCase
 {
-	private EventBus|MockInterface|null $eventBus = null;
-	private MockInterface|UuidGenerator|null $uuidGenerator = null;
+	private EventBus | MockInterface | null $eventBus = null;
+	private MockInterface | UuidGenerator | null $uuidGenerator = null;
 
 	protected function mockClass(string $className): MockInterface
 	{
@@ -42,7 +42,7 @@ abstract class UnitTestCase extends LaravelUnitTestCase
 			->andReturnNull();
 	}
 
-	protected function eventBus(): EventBus|MockInterface
+	protected function eventBus(): EventBus | MockInterface
 	{
 		return $this->eventBus ??= $this->mock(EventBus::class);
 	}
@@ -56,7 +56,7 @@ abstract class UnitTestCase extends LaravelUnitTestCase
 			->andReturn($uuid);
 	}
 
-	protected function uuidGenerator(): MockInterface|UuidGenerator
+	protected function uuidGenerator(): MockInterface | UuidGenerator
 	{
 		return $this->uuidGenerator ??= $this->mock(UuidGenerator::class);
 	}
@@ -79,8 +79,11 @@ abstract class UnitTestCase extends LaravelUnitTestCase
 	}
 
 	/** @param class-string<Throwable> $expectedErrorClass */
-	protected function assertAskThrowsException(string $expectedErrorClass, Query $query, callable $queryHandler): void
-	{
+	protected function assertAskThrowsException(
+		string $expectedErrorClass,
+		Query $query,
+		callable $queryHandler
+	): void {
 		$this->expectException($expectedErrorClass);
 
 		$queryHandler($query);

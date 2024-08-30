@@ -9,7 +9,7 @@ use Tests\Shared\TestCase;
 
 final class GetAllUsersControllerTest extends TestCase
 {
-    use RefreshDatabase;
+	use RefreshDatabase;
 
 	public function test_the_application_returns_201_after_create_a_user(): void
 	{

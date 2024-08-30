@@ -16,12 +16,7 @@ final readonly class AllUsersSearcher
 
 	public function __invoke(): UsersResponse
 	{
-		return new UsersResponse(
-            ...map(
-                $this->toResponse(),
-                $this->repository->searchAll()
-            )
-        );
+		return new UsersResponse(...map($this->toResponse(), $this->repository->searchAll()));
 	}
 
 	private function toResponse(): callable

@@ -31,11 +31,7 @@ final class User extends AggregateRoot
 
 	public static function create(?UserId $id, UserName $name, UserEmail $email, UserPassword $password): self
 	{
-		return new self(
-            $id ?? new UserId(0),
-            $name,
-            $email,
-            $password);
+		return new self($id ?? new UserId(0), $name, $email, $password);
 	}
 
 	public static function fromPrimitives(array $primitives): self

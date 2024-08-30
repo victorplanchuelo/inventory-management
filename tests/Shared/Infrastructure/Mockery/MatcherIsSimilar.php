@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Tests\Shared\Infrastructure\Mockery;
 
 use Mockery\Matcher\MatcherInterface;
-use Tests\Shared\Infrastructure\PhpUnit\Constraint\ConstraintIsSimilar;
 use Stringable;
+use Tests\Shared\Infrastructure\PhpUnit\Constraint\ConstraintIsSimilar;
 
 final readonly class MatcherIsSimilar implements MatcherInterface, Stringable
 {

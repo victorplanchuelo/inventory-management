@@ -18,17 +18,13 @@ final readonly class UserCreator
 
 	public function __invoke(UserName $name, UserEmail $email, UserPassword $password): void
 	{
-        $user = $this->repository->searchByEmail($email);
+		$user = $this->repository->searchByEmail($email);
 
 		if ($user !== null) {
 			throw new UserAlreadyExistsException($user->id());
 		}
 
-		$user = User::create(
-            id: null,
-            name: $name,
-            email: $email,
-            password: $password);
+		$user = User::create(id: null, name: $name, email: $email, password: $password);
 		$wasCreated = $this->repository->create($user);
 		if (!$wasCreated) {
 			throw new CreateUserException($user->email());
