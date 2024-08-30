@@ -26,7 +26,7 @@ final class CreateUserCommandHandlerTest extends UsersModuleUnitTestCase
 
     #[Test] public function it_should_create_a_valid_user(): void
 	{
-		$command = UsersResponseMother::create();
+		$command = CreateUserCommandMother::create();
 
 		$user = UserMother::fromRequest($command);
 		//$domainEvent = UserCreatedDomainEventMother::fromCourse($course);
