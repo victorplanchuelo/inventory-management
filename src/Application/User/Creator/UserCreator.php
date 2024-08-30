@@ -24,7 +24,11 @@ final readonly class UserCreator
 			throw new UserAlreadyExistsException($user->id());
 		}
 
-		$user = User::create($name, $email, $password);
+		$user = User::create(
+            id: null,
+            name: $name,
+            email: $email,
+            password: $password);
 		$wasCreated = $this->repository->create($user);
 		if (!$wasCreated) {
 			throw new CreateUserException($user->email());

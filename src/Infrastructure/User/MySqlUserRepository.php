@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Manager\Infrastructure\User;
 
+use Illuminate\Support\Facades\Hash;
 use Manager\Domain\User\User;
 use Manager\Domain\User\UserRepository;
 use Manager\Domain\User\ValueObjects\UserEmail;
@@ -21,16 +22,23 @@ final class MySqlUserRepository implements UserRepository
         return map($this->toResponse(), $usersEloquent);
 	}
 
-	public function create(User $user): bool
-	{
-		$user = new UserEloquentModel(
+	public function create(User $user): ?User
+    {
+		$userModel = new UserEloquentModel(
 			[
 				'name' => $user->name()->value(),
 				'email' => $user->email()->value(),
 				'password' => $user->password()->value(),
 			]
 		);
-		return $user->save();
+
+		$userModel->save();
+        return new User(
+            new UserId($userModel->id),
+            new UserName($userModel->name),
+            new UserEmail($userModel->email),
+            new UserPassword($userModel->password)
+        );
 	}
 
     private function toResponse(): callable
@@ -45,6 +53,17 @@ final class MySqlUserRepository implements UserRepository
 
     public function searchByEmail(UserEmail $email): ?User
     {
-        $user = UserEloquentModel::where('email', $email->value())->first();
+        $user = null;
+        $userEloquent = UserEloquentModel::where('email', $email->value())->first();
+        if($userEloquent !== null) {
+            $user = new User(
+                new UserId($userEloquent->id),
+                new UserName($userEloquent->name),
+                new UserEmail($userEloquent->email),
+                new UserPassword($userEloquent->password)
+            );
+        }
+
+        return $user;
     }
 }

@@ -19,13 +19,13 @@ final class UserEloquentModel extends Authenticatable
 	protected $primaryKey = 'id';
 	public $incrementing = true;
 	public $timestamps = true;
-	protected $fillable = ['name', 'email', 'password', ];
+	protected $fillable = ['name', 'email', 'password',];
 	protected $hidden = ['password', 'remember_token', ];
 	protected function casts(): array
 	{
 		return [
 			'email_verified_at' => 'datetime',
-			'password' => 'hashed',
+            'password' => 'hashed',
 		];
 	}
 
