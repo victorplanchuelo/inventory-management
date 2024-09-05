@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Manager\Shared\Infrastructure\Bus\Event;
+namespace Manager\Shared\Infrastructure\Bus\Event\InMemory;
 
 use Manager\Shared\Domain\Bus\Event\DomainEvent;
 use Manager\Shared\Domain\Bus\Event\EventBus;

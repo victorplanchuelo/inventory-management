@@ -23,7 +23,6 @@ abstract class UsersModuleUnitTestCase extends UnitTestCase
 	public function createApplication()
 	{
 		$app = require Application::inferBasePath() . '/bootstrap/app.php';
-
 		$app->make(Kernel::class)->bootstrap();
 
 		return $app;

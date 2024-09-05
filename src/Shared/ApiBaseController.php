@@ -6,4 +6,4 @@ namespace Manager\Shared;
 
 use App\Http\Controllers\Controller;
 
-final class ApiBaseController extends Controller {}
+class ApiBaseController extends Controller {}
