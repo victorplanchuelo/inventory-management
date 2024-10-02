@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
-use Manager\Application\User\Creator\CreateUserCommandHandler;
-use Manager\Application\User\Searcher\GetAllUsersQueryHandler;
-use Manager\Domain\User\UserCreatedDomainEvent;
-use Manager\Domain\User\UserRepository;
-use Manager\Infrastructure\User\MySqlUserRepository;
+use Manager\Api\User\Application\Creator\CreateUserCommandHandler;
+use Manager\Api\User\Application\Searcher\GetAllUsersQueryHandler;
+use Manager\Api\User\Domain\UserCreatedDomainEvent;
+use Manager\Api\User\Domain\UserRepository;
+use Manager\Api\User\Infrastructure\MySqlUserRepository;
 
 final class UserProvider extends ServiceProvider
 {
