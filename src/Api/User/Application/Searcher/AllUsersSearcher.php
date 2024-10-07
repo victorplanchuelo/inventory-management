@@ -23,7 +23,7 @@ final readonly class AllUsersSearcher
 	{
 		return static fn (User $user): UserResponse => new UserResponse(
 			$user->id()->value(),
-            $user->uuid()->value(),
+			$user->uuid()->value(),
 			$user->name()->value(),
 			$user->email()->value(),
 			$user->password()->value()

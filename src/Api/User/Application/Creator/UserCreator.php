@@ -4,23 +4,40 @@ declare(strict_types=1);
 
 namespace Manager\Api\User\Application\Creator;
 
-use Manager\Api\User\Domain\Exceptions\CreateUserException;
+use Manager\Api\User\Application\SearchByCriteria\UserByCriteriaSearcher;
 use Manager\Api\User\Domain\Exceptions\UserAlreadyExistsException;
 use Manager\Api\User\Domain\User;
 use Manager\Api\User\Domain\UserRepository;
 use Manager\Api\User\Domain\ValueObjects\UserEmail;
+use Manager\Shared\Domain\Bus\Query\QueryBus;
+use Manager\Shared\Domain\Criteria\Filters;
+use Manager\Shared\Domain\Criteria\InvalidCriteriaException;
+use Manager\Shared\Domain\Criteria\Order;
 
 final readonly class UserCreator
 {
-	public function __construct(private UserRepository $repository) {}
+	private UserByCriteriaSearcher $finder;
 
-	public function __invoke(string $uuid, string $name, string $email, string $password): void
+	public function __construct(
+		private UserRepository $repository,
+	) {
+		$this->finder = new UserByCriteriaSearcher($repository);
+	}
+
+    /**
+     * @throws InvalidCriteriaException
+     */
+    public function __invoke(string $uuid, string $name, string $email, string $password): void
 	{
-		//TODO. Change with Criteria pattern
-        $user = $this->repository->searchByEmail(new UserEmail($email));
+		$filters = Filters::fromPrimitives([[
+				'field' => 'email',
+				'operator' => '=',
+				'value' => $email,
+			]]);
 
-		if ($user !== null) {
-			throw new UserAlreadyExistsException($user->id());
+		$userResponse = $this->finder->search(filters: $filters, order: Order::none(), limit: null, offset: null);
+		if (!empty($userResponse->users())) {
+			throw new UserAlreadyExistsException(new UserEmail($email));
 		}
 
 		$user = User::create(uuid: $uuid, id: null, name: $name, email: $email, password: $password);

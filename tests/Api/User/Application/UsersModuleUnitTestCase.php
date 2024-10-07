@@ -9,9 +9,9 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Hash;
 use Manager\Api\User\Domain\User;
 use Manager\Api\User\Domain\UserRepository;
-use Manager\Api\User\Domain\ValueObjects\UserEmail;
 use Manager\Api\User\Domain\ValueObjects\UserId;
 use Manager\Api\User\Domain\ValueObjects\UserPassword;
+use Manager\Shared\Domain\Criteria\Criteria;
 use Mockery\CompositeExpectation;
 use Mockery\MockInterface;
 use Tests\Shared\Infrastructure\PhpUnit\UnitTestCase;
@@ -35,27 +35,29 @@ abstract class UsersModuleUnitTestCase extends UnitTestCase
 			->with($this->similarTo($user))
 			->once()
 			->andReturn(
-				new User(new UserId(1), $user->uuid(), $user->name(), $user->email(), new UserPassword(Hash::make($user->password()->value())))
+				new User(new UserId(1), $user->uuid(), $user->name(), $user->email(), new UserPassword(Hash::make(
+					$user->password()->value()
+				)))
 			);
 	}
 
-	protected function shouldSearchByEmailAndReturnNull(UserEmail $email): void
+	protected function shouldSearchByCriteriaAndReturnNull(Criteria $criteria): void
 	{
-		$this->shouldSearchByEmailExpectation($email)
-			->andReturn(null);
+		$this->shouldSearchByCriteriaExpectation($criteria)
+			->andReturn([]);
 	}
 
-	protected function shouldSearchByEmailAndReturnUser(UserEmail $email, ?User $user): void
+	protected function shouldSearchByCriteriaAndReturnUsers(Criteria $criteria, array $users): void
 	{
-		$this->shouldSearchByEmailExpectation($email)
-			->andReturn($user);
+		$this->shouldSearchByCriteriaExpectation($criteria)
+			->andReturn($users);
 	}
 
-	protected function shouldSearchByEmailExpectation(UserEmail $email): CompositeExpectation
+	protected function shouldSearchByCriteriaExpectation(Criteria $criteria): CompositeExpectation
 	{
 		return $this->repository()
-			->shouldReceive('searchByEmail')
-			->with($this->similarTo($email))
+			->shouldReceive('matching')
+			->with($this->similarTo($criteria))
 			->once();
 	}
 

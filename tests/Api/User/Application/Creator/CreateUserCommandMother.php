@@ -18,12 +18,12 @@ final class CreateUserCommandMother
 {
 	public static function create(
 		?UserUuid $uuid = null,
-        ?UserName $name = null,
+		?UserName $name = null,
 		?UserEmail $email = null,
 		?UserPassword $password = null
 	): CreateUserCommand {
 		return new CreateUserCommand(
-            $uuid?->value() ?? UserUuidMother::create()->value(),
+			$uuid?->value() ?? UserUuidMother::create()->value(),
 			$name?->value() ?? UserNameMother::create()->value(),
 			$email?->value() ?? UserEmailMother::create()->value(),
 			$password?->value() ?? UserPasswordMother::create()->value()

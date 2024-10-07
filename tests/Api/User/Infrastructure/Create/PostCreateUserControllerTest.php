@@ -14,7 +14,10 @@ final class PostCreateUserControllerTest extends TestCase
 
 	public function test_the_application_returns_201_after_create_a_user(): void
 	{
-		$response = $this->post('/user', ['uuid' => UuidMother::create() , 'name' => 'John Doe', 'email' => 'john@doe.com', 'password' => 'password']);
+		$response = $this->post(
+			'/user',
+			['uuid' => UuidMother::create(), 'name' => 'John Doe', 'email' => 'john@doe.com', 'password' => 'password']
+		);
 		$response->assertStatus(201);
 	}
 }

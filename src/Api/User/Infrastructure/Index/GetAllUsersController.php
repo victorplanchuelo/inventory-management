@@ -22,8 +22,8 @@ final class GetAllUsersController extends ApiBaseController
 		return new JsonResponse(
 			map(
 				fn (UserResponse $user): array => [
-                    'uuid' => $user->uuid(),
-                    'id' => $user->id(),
+					'uuid' => $user->uuid(),
+					'id' => $user->id(),
 					'name' => $user->name(),
 					'email' => $user->email(),
 				],

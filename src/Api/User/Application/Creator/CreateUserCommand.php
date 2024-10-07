@@ -15,10 +15,10 @@ final readonly class CreateUserCommand implements Command
 		return $this->uuid;
 	}
 
-    public function password(): string
-    {
-        return $this->password;
-    }
+	public function password(): string
+	{
+		return $this->password;
+	}
 
 	public function name(): string
 	{

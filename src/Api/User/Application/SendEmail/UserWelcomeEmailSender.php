@@ -19,9 +19,8 @@ final readonly class UserWelcomeEmailSender
 	{
 		//$counter = $this->repository->search() ?: $this->initializeCounter();
 
-        //TODO. Do something sending a welcome email or something
+		//TODO. Do something sending a welcome email or something
 
-        //$this->bus->publish(...$counter->pullDomainEvents());
-
+		//$this->bus->publish(...$counter->pullDomainEvents());
 	}
 }

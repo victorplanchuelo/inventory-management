@@ -8,7 +8,7 @@ final readonly class UserResponse
 {
 	public function __construct(
 		private int $id,
-        private string $uuid,
+		private string $uuid,
 		private string $name,
 		private string $email,
 		private string $password
@@ -19,10 +19,10 @@ final readonly class UserResponse
 		return $this->id;
 	}
 
-    public function uuid(): string
-    {
-        return $this->uuid;
-    }
+	public function uuid(): string
+	{
+		return $this->uuid;
+	}
 
 	public function name(): string
 	{
