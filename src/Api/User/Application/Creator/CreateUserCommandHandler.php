@@ -13,9 +13,10 @@ final readonly class CreateUserCommandHandler implements CommandHandler
 	public function __invoke(CreateUserCommand $command): void
 	{
 		$this->creator->__invoke(
-            $command->uuid(),
-            $command->name(),
-            $command->email(),
-            $command->password());
+			$command->uuid(),
+			$command->name(),
+			$command->email(),
+			$command->password()
+		);
 	}
 }

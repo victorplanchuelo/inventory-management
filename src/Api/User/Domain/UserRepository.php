@@ -4,13 +4,11 @@ declare(strict_types=1);
 
 namespace Manager\Api\User\Domain;
 
-use Manager\Api\User\Domain\ValueObjects\UserEmail;
-use Manager\Api\User\Domain\ValueObjects\UserUuid;
+use Manager\Shared\Domain\Criteria\Criteria;
 
 interface UserRepository
 {
 	public function searchAll(): array;
-    public function search(UserUuid $uuid): ?User;
-	public function searchByEmail(UserEmail $email): ?User;
+	public function matching(Criteria $criteria): array;
 	public function save(User $user): User;
 }

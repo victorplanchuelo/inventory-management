@@ -32,9 +32,6 @@ final class UserProvider extends ServiceProvider
 		//        );
 		//
 
-        $this->app->tag(
-            UserCreatedDomainEvent::class,
-            'domain_event_subscriber'
-        );
+		$this->app->tag(UserCreatedDomainEvent::class, 'domain_event_subscriber');
 	}
 }

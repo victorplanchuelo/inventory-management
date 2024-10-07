@@ -12,6 +12,8 @@ use Manager\Api\User\Domain\ValueObjects\UserName;
 use Manager\Api\User\Domain\ValueObjects\UserPassword;
 use Manager\Api\User\Domain\ValueObjects\UserUuid;
 use Manager\Api\User\Infrastructure\Persistence\UserEloquentModel;
+use Manager\Shared\Domain\Criteria\Criteria;
+use Manager\Shared\Infrastructure\Criteria\CriteriaToEloquentConverter;
 use function Lambdish\Phunctional\map;
 
 final class MySqlUserRepository implements UserRepository
@@ -26,7 +28,7 @@ final class MySqlUserRepository implements UserRepository
 	{
 		$userModel = new UserEloquentModel(
 			[
-                'uuid' => $user->uuid()->value(),
+				'uuid' => $user->uuid()->value(),
 				'name' => $user->name()->value(),
 				'email' => $user->email()->value(),
 				'password' => $user->password()->value(),
@@ -35,59 +37,30 @@ final class MySqlUserRepository implements UserRepository
 
 		$userModel->save();
 
-        return new User(
-            new UserId($userModel->id),
-            new UserUuid($userModel->uuid),
-            new UserName($userModel->name),
-            new UserEmail($userModel->email),
-            new UserPassword($userModel->password)
-        );
+		return new User(
+			new UserId($userModel->id),
+			new UserUuid($userModel->uuid),
+			new UserName($userModel->name),
+			new UserEmail($userModel->email),
+			new UserPassword($userModel->password)
+		);
 	}
 
 	private function toResponse(): callable
 	{
 		return static fn (UserEloquentModel $user): User => new User(
-            new UserId($user->id),
-            new UserUuid($user->uuid),
+			new UserId($user->id),
+			new UserUuid($user->uuid),
 			new UserName($user->name),
 			new UserEmail($user->email),
 			new UserPassword($user->password)
 		);
 	}
 
-	//TODO. Change with Criteria
-    public function searchByEmail(UserEmail $email): ?User
+	public function matching(Criteria $criteria): array
 	{
-		$user = null;
-		$userEloquent = UserEloquentModel::where('email', $email->value())->first();
-		if ($userEloquent !== null) {
-			$user = new User(
-                new UserId($userEloquent->id),
-                new UserUuid($userEloquent->uuid),
-				new UserName($userEloquent->name),
-				new UserEmail($userEloquent->email),
-				new UserPassword($userEloquent->password)
-			);
-		}
-
-		return $user;
+        //TODO. Check function
+        $users = (CriteriaToEloquentConverter::convert(UserEloquentModel::query(), $criteria))->get();
+        return map($this->toResponse(), $users);
 	}
-
-    //TODO. Change with Criteria
-    public function search(UserUuid $uuid): ?User
-    {
-        $user = null;
-        $userEloquent = UserEloquentModel::where('uuid', $uuid->value())->first();
-        if ($userEloquent !== null) {
-            $user = new User(
-                new UserId($userEloquent->id),
-                new UserUuid($userEloquent->uuid),
-                new UserName($userEloquent->name),
-                new UserEmail($userEloquent->email),
-                new UserPassword($userEloquent->password)
-            );
-        }
-
-        return $user;
-    }
 }

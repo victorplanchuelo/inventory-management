@@ -13,67 +13,73 @@ use Manager\Shared\Domain\Aggregate\AggregateRoot;
 
 final class User extends AggregateRoot
 {
-    public function __construct(
-        protected readonly UserId       $id,
-        protected readonly UserUuid     $uuid,
-        protected readonly UserName     $name,
-        protected readonly UserEmail    $email,
-        protected readonly UserPassword $password
-    ) {
-    }
+	public function __construct(
+		protected readonly UserId $id,
+		protected readonly UserUuid $uuid,
+		protected readonly UserName $name,
+		protected readonly UserEmail $email,
+		protected readonly UserPassword $password
+	) {}
 
-    public static function create(string $uuid, ?int $id, string $name, string $email, string $password): self
-    {
-        $user = new self(
-            new UserId($id ?? 0),
-            new UserUuid($uuid),
-            new UserName($name),
-            new UserEmail($email),
-            new UserPassword($password)
-        );
-        $user->record(new UserCreatedDomainEvent($id ?? 0, $uuid, $name, $email, $password));
+	public static function create(string $uuid, ?int $id, string $name, string $email, string $password): self
+	{
+		$user = new self(
+			new UserId($id ?? 0),
+			new UserUuid($uuid),
+			new UserName($name),
+			new UserEmail($email),
+			new UserPassword($password)
+		);
 
-        return $user;
-    }
+		$user->record(new UserCreatedDomainEvent($id ?? 0, $uuid, $name, $email, $password));
 
-    public static function fromPrimitives(array $primitives): self
-    {
-        return new self($primitives['uuid'], $primitives['id'], $primitives['name'], $primitives['email'], $primitives['password']);
-    }
+		return $user;
+	}
 
-    public function toPrimitives(): array
-    {
-        return [
-            'id'       => $this->id,
-            'uuid'     => $this->uuid,
-            'name'     => $this->name,
-            'email'    => $this->email,
-            'password' => $this->password,
-        ];
-    }
+	public static function fromPrimitives(array $primitives): self
+	{
+		return new self(
+			$primitives['uuid'],
+			$primitives['id'],
+			$primitives['name'],
+			$primitives['email'],
+			$primitives['password']
+		);
+	}
 
-    public function password(): UserPassword
-    {
-        return $this->password;
-    }
+	public function toPrimitives(): array
+	{
+		return [
+			'id' => $this->id,
+			'uuid' => $this->uuid,
+			'name' => $this->name,
+			'email' => $this->email,
+			'password' => $this->password,
+		];
+	}
 
-    public function email(): UserEmail
-    {
-        return $this->email;
-    }
+	public function password(): UserPassword
+	{
+		return $this->password;
+	}
 
-    public function name(): UserName
-    {
-        return $this->name;
-    }
+	public function email(): UserEmail
+	{
+		return $this->email;
+	}
 
-    public function id(): UserId
-    {
-        return $this->id;
-    }
+	public function name(): UserName
+	{
+		return $this->name;
+	}
 
-    public function uuid(): UserUuid
-    {
-        return $this->uuid;
-    }
+	public function id(): UserId
+	{
+		return $this->id;
+	}
+
+	public function uuid(): UserUuid
+	{
+		return $this->uuid;
+	}
 }

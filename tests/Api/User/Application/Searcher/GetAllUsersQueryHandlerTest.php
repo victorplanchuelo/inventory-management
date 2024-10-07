@@ -27,7 +27,7 @@ final class GetAllUsersQueryHandlerTest extends UsersModuleUnitTestCase
 		$this->handler = new GetAllUsersQueryHandler(new AllUsersSearcher($this->repository()));
 	}
 
-	#[Test] public function it_should_find_an_existing_courses_counter(): void
+	#[Test] public function it_should_find_existing_users(): void
 	{
 		$user1 = UserMother::create(new UserId(1));
 		$user2 = UserMother::create(new UserId(2));
@@ -38,7 +38,7 @@ final class GetAllUsersQueryHandlerTest extends UsersModuleUnitTestCase
 		foreach ($users as $user) {
 			$userResponseMother = UserResponseMother::create(
 				$user->id()->value(),
-                $user->uuid()->value(),
+				$user->uuid()->value(),
 				$user->name()->value(),
 				$user->email()->value(),
 				$user->password()->value()
@@ -51,7 +51,7 @@ final class GetAllUsersQueryHandlerTest extends UsersModuleUnitTestCase
 			...map(function ($user) {
 				return UserResponseMother::create(
 					$user->id()->value(),
-                    $user->uuid()->value(),
+					$user->uuid()->value(),
 					$user->name()->value(),
 					$user->email()->value(),
 					$user->password()->value()

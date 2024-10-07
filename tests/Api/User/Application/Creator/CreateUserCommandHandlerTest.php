@@ -11,6 +11,7 @@ use Manager\Api\User\Domain\Exceptions\UserAlreadyExistsException;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Api\User\Application\UsersModuleUnitTestCase;
 use Tests\Api\User\Domain\ObjectMother\UserMother;
+use Tests\Api\User\Domain\UserCriteriaMother;
 
 final class CreateUserCommandHandlerTest extends UsersModuleUnitTestCase
 {
@@ -32,21 +33,25 @@ final class CreateUserCommandHandlerTest extends UsersModuleUnitTestCase
 		$user = UserMother::fromRequest($command);
 		//$domainEvent = UserCreatedDomainEventMother::fromCourse($course);
 
-		$this->shouldSearchByEmailAndReturnNull($user->email());
+		$userEmailEqualsToCriteria = UserCriteriaMother::emailEqualsTo($user->email()->value());
+
+		$this->shouldSearchByCriteriaAndReturnNull($userEmailEqualsToCriteria);
 		$this->shouldSave($user);
 		//$this->shouldPublishDomainEvent($domainEvent);
 
 		$this->dispatch($command, $this->handler);
 	}
 
-    #[Test] public function it_should_throw_an_exception_when_user_email_is_registered(): void
-    {
-        $this->expectException(UserAlreadyExistsException::class);
+	#[Test] public function it_should_throw_an_exception_when_user_email_is_registered(): void
+	{
+		$this->expectException(UserAlreadyExistsException::class);
 
-        $command = CreateUserCommandMother::create();
-        $user = UserMother::fromRequest($command);
+		$command = CreateUserCommandMother::create();
+		$user = UserMother::fromRequest($command);
 
-        $this->shouldSearchByEmailAndReturnUser($user->email(), $user);
-        $this->dispatch($command, $this->handler);
-    }
+		$userEmailEqualsToCriteria = UserCriteriaMother::emailEqualsTo($user->email()->value());
+
+		$this->shouldSearchByCriteriaAndReturnUsers($userEmailEqualsToCriteria, [$user]);
+		$this->dispatch($command, $this->handler);
+	}
 }

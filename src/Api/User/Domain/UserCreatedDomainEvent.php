@@ -10,10 +10,10 @@ final class UserCreatedDomainEvent extends DomainEvent
 {
 	public function __construct(
 		int $id,
-        private readonly string $uuid,
+		private readonly string $uuid,
 		private readonly string $name,
 		private readonly string $email,
-        private readonly string $password,
+		private readonly string $password,
 		string $eventId = null,
 		string $occurredOn = null
 	) {
@@ -38,18 +38,18 @@ final class UserCreatedDomainEvent extends DomainEvent
 	{
 		return [
 			'uuid' => $this->uuid,
-            'name' => $this->name,
+			'name' => $this->name,
 			'email' => $this->email,
-            'password' => $this->password,
+			'password' => $this->password,
 		];
 	}
 
-    public function uuid(): string
-    {
-        return $this->uuid;
-    }
+	public function uuid(): string
+	{
+		return $this->uuid;
+	}
 
-    public function name(): string
+	public function name(): string
 	{
 		return $this->name;
 	}
@@ -59,8 +59,8 @@ final class UserCreatedDomainEvent extends DomainEvent
 		return $this->email;
 	}
 
-    public function password(): string
-    {
-        return $this->password;
-    }
+	public function password(): string
+	{
+		return $this->password;
+	}
 }

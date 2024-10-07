@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Manager\Api\User\Domain\Exceptions;
 
-use Manager\Api\User\Domain\ValueObjects\UserId;
+use Manager\Api\User\Domain\ValueObjects\UserEmail;
 use Manager\Shared\Domain\DomainError;
 
 final class UserAlreadyExistsException extends DomainError
 {
-	public function __construct(private readonly UserId $userId)
+	public function __construct(private readonly UserEmail $userEmail)
 	{
 		parent::__construct();
 	}
@@ -21,6 +21,6 @@ final class UserAlreadyExistsException extends DomainError
 
 	protected function errorMessage(): string
 	{
-		return sprintf('The user <%s> already exists.', $this->userId->value());
+		return sprintf('The user with email <%s> already exists.', $this->userEmail->value());
 	}
 }
