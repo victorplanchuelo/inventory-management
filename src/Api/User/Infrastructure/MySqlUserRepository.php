@@ -59,7 +59,6 @@ final class MySqlUserRepository implements UserRepository
 
 	public function matching(Criteria $criteria): array
 	{
-        //TODO. Check function
         $users = (CriteriaToEloquentConverter::convert(UserEloquentModel::query(), $criteria))->get();
         return map($this->toResponse(), $users);
 	}
