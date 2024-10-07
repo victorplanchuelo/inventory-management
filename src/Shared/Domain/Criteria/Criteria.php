@@ -6,7 +6,7 @@ namespace Manager\Shared\Domain\Criteria;
 
 final readonly class Criteria
 {
-    /** @throws InvalidCriteria
+    /** @throws InvalidCriteriaException
      * @throws InvalidCriteriaException
      */
     public function __construct(
