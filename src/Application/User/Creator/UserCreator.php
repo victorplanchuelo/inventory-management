@@ -11,10 +11,11 @@ use Manager\Domain\User\UserRepository;
 use Manager\Domain\User\ValueObjects\UserEmail;
 use Manager\Domain\User\ValueObjects\UserName;
 use Manager\Domain\User\ValueObjects\UserPassword;
+use Manager\Shared\Domain\Bus\Event\EventBus;
 
 final readonly class UserCreator
 {
-	public function __construct(private UserRepository $repository) {}
+	public function __construct(private UserRepository $repository, private EventBus $bus) {}
 
 	public function __invoke(UserName $name, UserEmail $email, UserPassword $password): void
 	{
@@ -25,9 +26,11 @@ final readonly class UserCreator
 		}
 
 		$user = User::create(id: null, name: $name, email: $email, password: $password);
-		$wasCreated = $this->repository->create($user);
-		if (!$wasCreated) {
+		$userCreated = $this->repository->create($user);
+		if (!$userCreated) {
 			throw new CreateUserException($user->email());
 		}
+
+        $this->bus->publish(...$user->pullDomainEvents());
 	}
 }

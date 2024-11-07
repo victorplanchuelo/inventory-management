@@ -10,6 +10,7 @@ use Manager\Shared\Domain\Bus\Event\EventBus;
 use Manager\Shared\Domain\Bus\Query\QueryBus;
 use Manager\Shared\Infrastructure\Bus\Command\InMemorySymfonyCommandBus;
 use Manager\Shared\Infrastructure\Bus\Event\InMemory\InMemorySymfonyEventBus;
+use Manager\Shared\Infrastructure\Bus\Event\MySql\MySqlEloquentEventBus;
 use Manager\Shared\Infrastructure\Bus\Query\InMemorySymfonyQueryBus;
 
 final class AppServiceProvider extends ServiceProvider
@@ -21,6 +22,7 @@ final class AppServiceProvider extends ServiceProvider
 	{
 		$this->app->bind(EventBus::class, function ($app) {
 			return new InMemorySymfonyEventBus($app->tagged('domain_event_subscriber'));
+            //return new MySqlEloquentEventBus($app->tagged('domain_event_subscriber'));
 		});
 
 		$this->app->bind(
