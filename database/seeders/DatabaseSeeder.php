@@ -3,7 +3,7 @@
 namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
-use Manager\Infrastructure\User\Persistence\UserEloquentModel;
+use Manager\Api\User\Infrastructure\Persistence\UserEloquentModel;
 
 // use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 

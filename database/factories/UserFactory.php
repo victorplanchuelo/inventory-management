@@ -5,19 +5,18 @@ namespace Database\Factories;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
-use Manager\Infrastructure\User\Persistence\UserEloquentModel;
+use Manager\Api\User\Infrastructure\Persistence\UserEloquentModel;
 
 /**
- * @extends Factory<UserEloquentModel>
+ * @extends \Illuminate\Database\Eloquent\Factories\Factory<\Manager\Api\User\Infrastructure\Persistence\UserEloquentModel>
  */
 class UserFactory extends Factory
 {
     /**
      * The current password being used by the factory.
      */
-    protected $model = UserEloquentModel::class;
-
     protected static ?string $password;
+    protected $model = UserEloquentModel::class;
 
     /**
      * Define the model's default state.
@@ -27,6 +26,7 @@ class UserFactory extends Factory
     public function definition(): array
     {
         return [
+            'uuid' => Str::uuid()->toString(),
             'name' => fake()->name(),
             'email' => fake()->unique()->safeEmail(),
             'email_verified_at' => now(),
