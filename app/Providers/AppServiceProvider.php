@@ -21,8 +21,8 @@ final class AppServiceProvider extends ServiceProvider
 	public function register(): void
 	{
 		$this->app->bind(EventBus::class, function ($app) {
-			return new InMemorySymfonyEventBus($app->tagged('domain_event_subscriber'));
-            //return new MySqlEloquentEventBus($app->tagged('domain_event_subscriber'));
+			//return new InMemorySymfonyEventBus($app->tagged('domain_event_subscriber'));
+            return new MySqlEloquentEventBus();
 		});
 
 		$this->app->bind(

@@ -12,22 +12,26 @@ use Manager\Shared\Domain\Bus\Command\CommandBus;
 
 final class PostCreateUserController extends ApiBaseController
 {
-	public function __construct(
-		private readonly CommandBus $commandBus,
-	) {}
+    public function __construct(
+        private readonly CommandBus $commandBus,
+    ) {
+    }
 
-	public function __invoke(CreateUserRequest $request): JsonResponse
-	{
-		$this->commandBus->dispatch(
-			new CreateUserCommand($request->get('uuid'), $request->get('name'), $request->get('email'), $request->get(
-				'password'
-			))
-		);
+    public function __invoke(CreateUserRequest $request): JsonResponse
+    {
+        $this->commandBus->dispatch(
+            new CreateUserCommand(
+                $request->get('uuid'),
+                $request->get('name'),
+                $request->get('email'),
+                $request->get('password')
+            )
+        );
 
-		return new JsonResponse(
-			null,
-			201,
-			['Access-Control-Allow-Origin' => '*']
-		);
-	}
+        return new JsonResponse(
+            null,
+            201,
+            ['Access-Control-Allow-Origin' => '*']
+        );
+    }
 }
