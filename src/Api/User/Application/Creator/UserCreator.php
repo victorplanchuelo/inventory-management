@@ -20,7 +20,7 @@ final readonly class UserCreator
 
     public function __construct(
         private UserRepository $repository,
-        private EventBus $bus,
+        private EventBus       $bus,
     ) {
         $this->finder = new UserByCriteriaSearcher($repository);
     }
@@ -46,6 +46,8 @@ final readonly class UserCreator
         $user      = User::create(uuid: $uuid, id: null, name: $name, email: $email, password: $password);
         $userSaved = $this->repository->save($user);
 
-        $this->bus->publish(...$user->pullDomainEvents());
+        $userSaved->pushDomainEvent();
+
+        $this->bus->publish(...$userSaved->pullDomainEvents());
     }
 }

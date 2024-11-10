@@ -7,7 +7,7 @@ namespace App\Providers;
 use Illuminate\Support\ServiceProvider;
 use Manager\Api\User\Application\Creator\CreateUserCommandHandler;
 use Manager\Api\User\Application\Searcher\GetAllUsersQueryHandler;
-use Manager\Api\User\Domain\UserCreatedDomainEvent;
+use Manager\Api\User\Application\SendEmail\SendWelcomeEmailOnUserCreated;
 use Manager\Api\User\Domain\UserRepository;
 use Manager\Api\User\Infrastructure\MySqlUserRepository;
 
@@ -32,6 +32,6 @@ final class UserProvider extends ServiceProvider
 		//        );
 		//
 
-		$this->app->tag(UserCreatedDomainEvent::class, 'domain_event_subscriber');
+		$this->app->tag(SendWelcomeEmailOnUserCreated::class, 'domain_event_subscriber');
 	}
 }
