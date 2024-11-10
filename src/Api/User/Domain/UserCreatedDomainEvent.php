@@ -31,7 +31,7 @@ final class UserCreatedDomainEvent extends DomainEvent
 		string $eventId,
 		string $occurredOn
 	): DomainEvent {
-		return new self($aggregateId, $body['name'], $body['email'], $body['password'], $eventId, $occurredOn);
+		return new self($aggregateId, $body['uuid'], $body['name'], $body['email'], $body['password'], $eventId, $occurredOn);
 	}
 
 	public function toPrimitives(): array
