@@ -9,7 +9,7 @@ use Manager\Api\User\Domain\Exceptions\UserAlreadyExistsException;
 use Manager\Api\User\Domain\User;
 use Manager\Api\User\Domain\UserRepository;
 use Manager\Api\User\Domain\ValueObjects\UserEmail;
-use Manager\Shared\Domain\Bus\Query\QueryBus;
+use Manager\Shared\Domain\Bus\Event\EventBus;
 use Manager\Shared\Domain\Criteria\Filters;
 use Manager\Shared\Domain\Criteria\InvalidCriteriaException;
 use Manager\Shared\Domain\Criteria\Order;
@@ -20,6 +20,7 @@ final readonly class UserCreator
 
 	public function __construct(
 		private UserRepository $repository,
+        private EventBus $bus
 	) {
 		$this->finder = new UserByCriteriaSearcher($repository);
 	}
@@ -42,5 +43,9 @@ final readonly class UserCreator
 
 		$user = User::create(uuid: $uuid, id: null, name: $name, email: $email, password: $password);
 		$userSaved = $this->repository->save($user);
+
+        $userSaved->pushDomainEvent();
+
+        $this->bus->publish(...$userSaved->pullDomainEvents());
 	}
 }

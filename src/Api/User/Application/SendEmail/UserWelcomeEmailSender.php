@@ -12,7 +12,6 @@ final readonly class UserWelcomeEmailSender
 {
 	public function __construct(
 		private UserRepository $repository,
-		private EventBus $bus
 	) {}
 
 	public function __invoke(UserEmail $email): void
@@ -20,6 +19,7 @@ final readonly class UserWelcomeEmailSender
 		//$counter = $this->repository->search() ?: $this->initializeCounter();
 
 		//TODO. Do something sending a welcome email or something
+        dump('send email');
 
 		//$this->bus->publish(...$counter->pullDomainEvents());
 	}
