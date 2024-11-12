@@ -28,18 +28,35 @@ abstract class UsersModuleUnitTestCase extends UnitTestCase
 		return $app;
 	}
 
-	protected function shouldSave(User $user): void
+	protected function shouldSaveAndReturnUser(User $user): User
 	{
-		$this->repository()
-			->shouldReceive('save')
-			->with($this->similarTo($user))
-			->once()
-			->andReturn(
-				new User(new UserId(1), $user->uuid(), $user->name(), $user->email(), new UserPassword(Hash::make(
-					$user->password()->value()
-				)))
-			);
+        $newUser = new User(
+            new UserId(1),
+            $user->uuid(),
+            $user->name(),
+            $user->email(),
+            new UserPassword(
+                Hash::make(
+                    $user->password()->value()
+                )
+            )
+        );
+
+		$this->shouldSave($user, $newUser);
+
+        return $newUser;
 	}
+
+    protected function shouldSave(User $user, User $newUser): void
+    {
+        $this->repository()
+            ->shouldReceive('save')
+            ->with($this->similarTo($user))
+            ->once()
+            ->andReturn(
+                $newUser
+            );
+    }
 
 	protected function shouldSearchByCriteriaAndReturnNull(Criteria $criteria): void
 	{

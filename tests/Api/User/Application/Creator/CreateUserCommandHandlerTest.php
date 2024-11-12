@@ -10,6 +10,7 @@ use Manager\Api\User\Application\Creator\UserCreator;
 use Manager\Api\User\Domain\Exceptions\UserAlreadyExistsException;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Api\User\Application\UsersModuleUnitTestCase;
+use Tests\Api\User\Domain\ObjectMother\UserCreatedDomainEventMother;
 use Tests\Api\User\Domain\ObjectMother\UserMother;
 use Tests\Api\User\Domain\UserCriteriaMother;
 
@@ -23,21 +24,20 @@ final class CreateUserCommandHandlerTest extends UsersModuleUnitTestCase
 	{
 		parent::setUp();
 
-		$this->handler = new CreateUserCommandHandler(new UserCreator($this->repository()));
+		$this->handler = new CreateUserCommandHandler(new UserCreator($this->repository(), $this->eventBus()));
 	}
 
 	#[Test] public function it_should_create_a_valid_user(): void
 	{
 		$command = CreateUserCommandMother::create();
-
 		$user = UserMother::fromRequest($command);
-		//$domainEvent = UserCreatedDomainEventMother::fromCourse($course);
 
 		$userEmailEqualsToCriteria = UserCriteriaMother::emailEqualsTo($user->email()->value());
 
 		$this->shouldSearchByCriteriaAndReturnNull($userEmailEqualsToCriteria);
-		$this->shouldSave($user);
-		//$this->shouldPublishDomainEvent($domainEvent);
+		$userSaved = $this->shouldSaveAndReturnUser($user);
+        $domainEvent = UserCreatedDomainEventMother::fromUser($userSaved);
+		$this->shouldPublishDomainEvent($domainEvent);
 
 		$this->dispatch($command, $this->handler);
 	}
