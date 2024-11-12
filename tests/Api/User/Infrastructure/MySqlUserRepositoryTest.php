@@ -8,8 +8,8 @@ use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Tests\Api\User\Domain\ObjectMother\UserEmailMother;
 use Tests\Api\User\Domain\ObjectMother\UserIdMother;
 use Tests\Api\User\Domain\ObjectMother\UserMother;
+use Tests\Api\User\Domain\ObjectMother\UserPasswordMother;
 use Tests\Api\User\Domain\UserCriteriaMother;
-use Tests\Shared\Domain\Criteria\CriteriaMother;
 
 final class MySqlUserRepositoryTest extends UserInfrastructureTestCase
 {
@@ -17,12 +17,12 @@ final class MySqlUserRepositoryTest extends UserInfrastructureTestCase
 
 	public function test_it_should_list_all_users(): void
 	{
-		$user = UserMother::create(id: UserIdMother::create(1));
-		$anotherUser = UserMother::create(id: UserIdMother::create(2));
-		$existingUsers = [$user, $anotherUser];
+		$user = UserMother::create(id: UserIdMother::create(1), password: UserPasswordMother::create('1234'));
+		$anotherUser = UserMother::create(id: UserIdMother::create(2), password: UserPasswordMother::create('4321'));
 
-		$this->mySqlRepository()->save($user);
-		$this->mySqlRepository()->save($anotherUser);
+		$savedUser1 = $this->mySqlRepository()->save($user);
+		$savedUser2 = $this->mySqlRepository()->save($anotherUser);
+        $existingUsers = [$savedUser1, $savedUser2];
 
 		//$this->assertEquals($existingUsers, $this->mySqlRepository()->searchAll());
 		$this->assertSimilar($existingUsers, $this->mySqlRepository()->searchAll());
@@ -38,10 +38,10 @@ final class MySqlUserRepositoryTest extends UserInfrastructureTestCase
         $emailToSearch = UserEmailMother::create('test@test.com');
 
         $user = UserMother::create(id: UserIdMother::create(1), email: $emailToSearch);
-        $this->mySqlRepository()->save($user);
+        $userSaved = $this->mySqlRepository()->save($user);
 
         $criteria = UserCriteriaMother::emailEqualsTo($emailToSearch->value());
 
-        $this->assertSimilar([$user], $this->mySqlRepository()->matching($criteria));
+        $this->assertSimilar([$userSaved], $this->mySqlRepository()->matching($criteria));
     }
 }
