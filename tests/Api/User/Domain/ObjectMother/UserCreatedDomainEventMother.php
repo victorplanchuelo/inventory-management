@@ -4,14 +4,6 @@ declare(strict_types=1);
 
 namespace Tests\Api\User\Domain\ObjectMother;
 
-use CodelyTv\Mooc\Courses\Domain\Course;
-use CodelyTv\Mooc\Courses\Domain\CourseCreatedDomainEvent;
-use CodelyTv\Mooc\Courses\Domain\CourseDuration;
-use CodelyTv\Mooc\Courses\Domain\CourseName;
-use CodelyTv\Mooc\Shared\Domain\Courses\CourseId;
-use CodelyTv\Tests\Mooc\Courses\Domain\CourseDurationMother;
-use CodelyTv\Tests\Mooc\Courses\Domain\CourseIdMother;
-use CodelyTv\Tests\Mooc\Courses\Domain\CourseNameMother;
 use Manager\Api\User\Domain\User;
 use Manager\Api\User\Domain\UserCreatedDomainEvent;
 use Manager\Api\User\Domain\ValueObjects\UserEmail;
@@ -19,7 +11,6 @@ use Manager\Api\User\Domain\ValueObjects\UserId;
 use Manager\Api\User\Domain\ValueObjects\UserName;
 use Manager\Api\User\Domain\ValueObjects\UserPassword;
 use Manager\Api\User\Domain\ValueObjects\UserUuid;
-use Tests\Shared\Domain\UuidMother;
 
 final class UserCreatedDomainEventMother
 {
