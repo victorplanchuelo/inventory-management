@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Shared\Infrastructure\PhpUnit;
 
+use Illuminate\Support\Facades\Config;
 use Manager\Shared\Domain\Bus\Command\Command;
 use Manager\Shared\Domain\Bus\Event\DomainEvent;
 use Manager\Shared\Domain\Bus\Event\EventBus;

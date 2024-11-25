@@ -10,7 +10,6 @@ Artisan::command('inspire', function () {
 	$this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote')->hourly();
 
-
 Schedule::command('manager:domain-events:mysql:consume', ['quantity' => 10])
     ->description('Consume MySql Domain Events from table')
     ->hourly();

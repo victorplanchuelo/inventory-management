@@ -26,6 +26,7 @@ services:
             - mysql
             - redis
             - mailpit
+            - rabbitmq
     mysql:
         image: 'mysql/mysql-server:8.0'
         ports:
@@ -70,6 +71,17 @@ services:
         ports:
             - '${FORWARD_MAILPIT_PORT:-1025}:1025'
             - '${FORWARD_MAILPIT_DASHBOARD_PORT:-8025}:8025'
+        networks:
+            - sail
+    rabbitmq:
+        image: 'rabbitmq:management'
+        restart: unless-stopped
+        ports:
+            - "5630:5672"
+            - "8090:15672"
+        environment:
+            - RABBITMQ_DEFAULT_USER=${RABBITMQ_LOGIN}
+            - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD}
         networks:
             - sail
 networks:

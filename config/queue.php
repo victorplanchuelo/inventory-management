@@ -74,6 +74,17 @@ return [
 			'after_commit' => false,
 		],
 
+        'rabbitmq' => [
+            'host' => env('RABBITMQ_HOST', 'rabbitmq'),
+            'port' => env('RABBITMQ_PORT', '5672'),
+            'vhost' => env('RABBITMQ_VHOST', '/'),
+            'login' => env('RABBITMQ_LOGIN', 'manager-api'),
+            'password' => env('RABBITMQ_PASSWORD', 'D5_UL9_u'),
+            'read_timeout' => 2,
+            'write_timeout' => 2,
+            'connect_timeout' => (int) env('RABBITMQ_MAX_RETRIES', 5),
+        ],
+
 	],
 
 	/*
