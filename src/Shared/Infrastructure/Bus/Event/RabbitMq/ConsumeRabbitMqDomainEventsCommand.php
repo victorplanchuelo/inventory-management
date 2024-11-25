@@ -4,11 +4,9 @@ namespace Manager\Shared\Infrastructure\Bus\Event\RabbitMq;
 
 
 use Illuminate\Console\Command;
-use Manager\Shared\Domain\Bus\Event\DomainEvent;
 use Manager\Shared\Infrastructure\Bus\Event\DomainEventSubscriberLocator;
 
 use Manager\Shared\Infrastructure\Database\DatabaseConnections;
-use function Lambdish\Phunctional\pipe;
 use function Lambdish\Phunctional\repeat;
 
 final class ConsumeRabbitMqDomainEventsCommand extends Command
