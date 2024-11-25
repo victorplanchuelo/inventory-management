@@ -121,4 +121,10 @@ return [
 		'store' => env('APP_MAINTENANCE_STORE', 'database'),
 	],
 
+
+    //RabbitMq variables
+    'rabbitmq' => [
+        'RABBITMQ_EXCHANGE' => env('RABBITMQ_EXCHANGE', 'domain_events'),
+        'RABBITMQ_MAX_RETRIES' => (int) env('RABBITMQ_MAX_RETRIES', 5),
+    ]
 ];

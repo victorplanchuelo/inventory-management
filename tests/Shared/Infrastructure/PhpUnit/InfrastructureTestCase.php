@@ -10,6 +10,11 @@ use Throwable;
 
 abstract class InfrastructureTestCase extends TestCase
 {
+    protected function service($class)
+    {
+        return app($class);
+    }
+
 	protected function assertSimilar(mixed $expected, mixed $actual): void
 	{
 		TestUtils::assertSimilar($expected, $actual);

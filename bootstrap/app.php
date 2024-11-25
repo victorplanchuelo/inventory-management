@@ -6,6 +6,8 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Support\Facades\Route;
+use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\ConfigureRabbitMqCommand;
+use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\ConsumeRabbitMqDomainEventsCommand;
 
 return Application::configure(basePath: dirname(__DIR__))
 	->withRouting(
@@ -18,6 +20,10 @@ return Application::configure(basePath: dirname(__DIR__))
 				->group(base_path('routes/user.php'));
 		}
 	)
+    ->withCommands([
+        ConfigureRabbitMqCommand::class,
+        ConsumeRabbitMqDomainEventsCommand::class,
+    ])
 	->withMiddleware(function (Middleware $middleware) {
 		//
 	})

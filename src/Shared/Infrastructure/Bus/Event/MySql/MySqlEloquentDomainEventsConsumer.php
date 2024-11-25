@@ -25,14 +25,18 @@ final readonly class MySqlEloquentDomainEventsConsumer
         $events = DB::table('domain_events')
             ->orderBy('occurred_on')
             ->limit($eventsToConsume)
-            ->get()->toArray();
+            ->get()
+            ->map(function($event) {
+                return (array) $event;
+            })
+            ->toArray();
 
         each($this->executeSubscribers($subscribers), $events);
         $ids = implode(', ', map($this->idExtractor(), $events));
 
         if (!empty($ids)) {
             DB::table('domain_events')
-                ->whereIn('id', $ids)
+                ->whereIn('id', [$ids])
                 ->delete();
 		}
 	}
