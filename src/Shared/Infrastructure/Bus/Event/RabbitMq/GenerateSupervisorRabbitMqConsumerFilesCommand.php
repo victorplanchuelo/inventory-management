@@ -68,8 +68,8 @@ final class GenerateSupervisorRabbitMqConsumerFilesCommand extends Command
     private function template(): string
     {
         return <<<EOF
-            [program:codelytv_{queue_name}]
-            command      = {path}/apps/mooc/backend/bin/console codely:domain-events:rabbitmq:consume --env=prod {queue_name} {events_to_process}
+            [program:manager_{queue_name}]
+            command      = php {path}/artisan manager:domain-events:rabbitmq:consume {queue_name} {events_to_process}
             process_name = %(program_name)s_%(process_num)02d
             numprocs     = {processes}
             startsecs    = 1

@@ -14,7 +14,7 @@ final class RabbitMqQueueNameFormatter
 {
 	public static function format(DomainEventSubscriber $subscriber): string
 	{
-		$subscriberClassPaths = explode('\\', str_replace('CodelyTv', 'codelytv', $subscriber::class));
+		$subscriberClassPaths = explode('\\', str_replace('Manager', 'manager', $subscriber::class));
 
 		$queueNameParts = [
 			$subscriberClassPaths[0],
