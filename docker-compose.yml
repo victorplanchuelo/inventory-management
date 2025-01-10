@@ -1,5 +1,5 @@
 services:
-    laravel.test:
+    app:
         build:
             context: ./docker/8.3
             dockerfile: Dockerfile
@@ -24,13 +24,12 @@ services:
             - sail
         depends_on:
             - mysql
-            - redis
             - mailpit
             - rabbitmq
     mysql:
         image: 'mysql/mysql-server:8.0'
         ports:
-            - '${FORWARD_DB_PORT:-3306}:3306'
+            - '${EXPOSE_DB_PORT:-3309}:3306'
         environment:
             MYSQL_ROOT_PASSWORD: '${DB_PASSWORD}'
             MYSQL_ROOT_HOST: '%'
@@ -51,34 +50,20 @@ services:
                 - '-p${DB_PASSWORD}'
             retries: 3
             timeout: 5s
-    redis:
-        image: 'redis:alpine'
-        ports:
-            - '${FORWARD_REDIS_PORT:-6379}:6379'
-        volumes:
-            - 'sail-redis:/data'
-        networks:
-            - sail
-        healthcheck:
-            test:
-                - CMD
-                - redis-cli
-                - ping
-            retries: 3
-            timeout: 5s
+
     mailpit:
         image: 'axllent/mailpit:latest'
         ports:
-            - '${FORWARD_MAILPIT_PORT:-1025}:1025'
-            - '${FORWARD_MAILPIT_DASHBOARD_PORT:-8025}:8025'
+            - '${MAIL_PORT:-1025}:1025'
+            - '${MAIL_DASHBOARD_PORT:-8025}:8025'
         networks:
             - sail
     rabbitmq:
         image: 'rabbitmq:management'
         restart: unless-stopped
         ports:
-            - "5630:5672"
-            - "8090:15672"
+            - "${RABBITMQ_PORT_1:-5630}:5672"
+            - "${RABBITMQ_PORT_2:-8090}:15672"
         environment:
             - RABBITMQ_DEFAULT_USER=${RABBITMQ_LOGIN}
             - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD}
