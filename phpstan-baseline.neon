@@ -1,0 +1,37 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Property Manager\\Api\\User\\Application\\SendEmail\\UserWelcomeEmailSender\:\:\$repository is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: src/Api/User/Application/SendEmail/UserWelcomeEmailSender.php
+
+		-
+			message: '#^Call to an undefined method Manager\\Shared\\Domain\\Bus\\Query\\Response\:\:users\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: src/Api/User/Infrastructure/Index/GetAllUsersController.php
+
+		-
+			message: '#^Call to an undefined method Manager\\Shared\\Domain\\Bus\\Query\\Response\:\:users\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: src/Api/User/Infrastructure/Search/GetUsersByCriteriaController.php
+
+		-
+			message: '#^Call to an undefined method ReflectionType\:\:getName\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: src/Shared/Infrastructure/Bus/CallableFirstParameterExtractor.php
+
+		-
+			message: '#^Parameter \#2 \$replace of function str_replace expects array\<string\>\|string, array\<int, int\|string\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Shared/Infrastructure/Bus/Event/RabbitMq/GenerateSupervisorRabbitMqConsumerFilesCommand.php
+
+		-
+			message: '#^Parameter \#3 \$value of function Lambdish\\Phunctional\\assoc expects string, \(float\|int\) given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Shared/Infrastructure/Bus/Event/RabbitMq/RabbitMqDomainEventsConsumer.php
