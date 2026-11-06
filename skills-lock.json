@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "codely-git-conventional-commit": {
+      "source": "codelytv/agent-harness",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/codely-git-conventional-commit/SKILL.md",
+      "computedHash": "15762b9173cad5c10a6de27c4bfb56b1106d5addd71339a1edfe17308aa5dcfd"
+    },
+    "codely-plan-create": {
+      "source": "codelytv/agent-harness",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/codely-plan-create/SKILL.md",
+      "computedHash": "c42de90b8b9cc6757ce184197f8ece66a78f7a2348df65618fc69faaf09344ac"
+    },
+    "codely-plan-phase-implement": {
+      "source": "codelytv/agent-harness",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/codely-plan-phase-implement/SKILL.md",
+      "computedHash": "4eeb49045fdccc5aa59438e9fcde67f4e7cab1d480cf9b2915412973cd659aaf"
+    }
+  }
+}
