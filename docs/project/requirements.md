@@ -1,28 +1,44 @@
-
-
 # Requirements — StockFlow
 
 ## Functional Requirements
 
 ### FR-01 — Create Order
 
-The API must allow creating an order with at least one line item. Each line item identifies a product and a positive quantity.
+The API must allow creating an order with at least one line item.
+
+Each line item identifies a product through its `ProductId` and specifies a positive quantity.
+
+Product descriptive information must not be owned by the Orders context.
 
 ### FR-02 — Atomic Confirmation
 
-An order can only be confirmed if all its line items can be reserved. The entire operation must be atomic: if any line item fails, no partial reservation or confirmed order must remain.
+An order can only be confirmed if all its line items can be reserved.
+
+The entire operation must be atomic: if any line item fails, no partial reservation or confirmed order must remain.
+
+Stock availability must be validated against Inventory's authoritative state, not against an eventually consistent projection.
+
+The operation must follow the transaction and locking strategy defined in ADR 002.
 
 ### FR-03 — Retrieve Order
 
-The API must allow retrieving an order's identifier, status, and line items.
+The API must allow retrieving an order's identifier, status and line items.
+
+Where product descriptive information is required, Orders may use a local product projection rather than querying Catalog's internal persistence.
 
 ### FR-04 — Cancel Order
 
-The API must allow requesting the cancellation of an order in a cancellable state. If active reservations exist, they must be released consistently.
+The API must allow requesting the cancellation of an order in a cancellable state.
+
+If active reservations exist, they must be released consistently.
+
+Repeated cancellation requests must not release the same reservation more than once.
 
 ### FR-05 — Register Inventory
 
 The API must allow registering the initial inventory quantity for a product, preventing invalid states and unplanned duplicates.
+
+The exact uniqueness rule for stock items per product must be validated before implementation.
 
 ### FR-06 — Add Inventory
 
@@ -32,35 +48,124 @@ The API must allow increasing the stock of an existing product by a positive qua
 
 The API must allow retrieving available and reserved quantities and, if supported by the model, total quantities.
 
-### FR-08 — Publish Events
+The returned values must be consistent with Inventory's authoritative state when retrieved directly from Inventory.
 
-Events that must be communicated to other components must be recorded in the Outbox within the same transaction as the business change.
+### FR-08 — Publish Integration Events
 
-### FR-09 — Consume Events
+Integration events that must be communicated to other components must be recorded in the producer context's Outbox within the same transaction as the corresponding business change.
 
-Messages published to RabbitMQ must be processed with retries and idempotency. Permanent failures must be isolatable through a dead-letter queue or an equivalent mechanism.
+Each bounded context that publishes integration events must own its Outbox records and publication responsibilities.
+
+The event contract must be independent of internal domain classes and transport-specific implementation details.
+
+### FR-09 — Consume Integration Events
+
+Messages published to RabbitMQ must be processed with retries and idempotency.
+
+Permanent failures must be isolatable through a dead-letter queue or an equivalent mechanism.
+
+Consumers must not depend on the producer's internal domain model or persistence.
+
+### FR-10 — Maintain Context-Owned Projections
+
+A bounded context must be able to maintain local read projections using integration events published by other contexts.
+
+Examples include:
+
+- An Orders product projection containing product information required by order-related queries.
+- An Orders inventory projection containing availability information required for display or preliminary queries.
+
+Each projection must be owned and maintained by its consuming context.
+
+A context must not update another context's projections or read another context's internal tables to maintain its own read models.
+
+### FR-11 — Retrieve Data Through Local Projections
+
+The API must be able to retrieve information from projections owned by its bounded context when those projections provide the required read model.
+
+Projection-backed queries must use context-owned query interfaces.
+
+The API must not access another bounded context's repositories, aggregates or persistence directly.
+
+Projection-backed responses must account for eventual consistency and must not imply that the projection always reflects the latest source state.
+
+### FR-12 — Process Messages Idempotently Through an Inbox
+
+Consumers must maintain an Inbox or equivalent processed-message mechanism to identify messages that have already been successfully processed.
+
+The processed-message record and the corresponding local projection or business update must be committed in the same transaction.
+
+A duplicate delivery must not repeat the effects of an already processed message.
+
+Different consuming contexts must maintain independent processing records.
+
+### FR-13 — Handle Out-of-Order Messages
+
+Consumers that rely on aggregate versions must be able to detect stale or out-of-order messages.
+
+Each consumer or projection must define how it handles older versions, missing versions and messages that cannot be applied safely.
+
+Consumers must not assume that message transport ordering alone guarantees correct projection state.
+
+### FR-14 — Maintain Product References
+
+Orders and Inventory must identify products through `ProductId`.
+
+If Catalog is not implemented initially, `ProductId` must remain an external reference.
+
+Inventory and Orders must not introduce duplicate Product aggregates or take ownership of product descriptive information.
+
+### FR-15 — Support Catalog Integration (Planned)
+
+When Catalog is introduced, it must own product information and publish the integration events required by consuming contexts.
+
+Candidate events include:
+
+- `ProductCreated`
+- `ProductUpdated`
+- `ProductDiscontinued`
+
+The exact event contracts and consuming projections must be defined in the Catalog task specification.
+
+Catalog is desirable but is not a prerequisite for the initial Inventory and Orders implementation.
 
 ## Non-Functional Requirements
 
 ### NFR-01 — Consistency
 
-Order persistence, reservations, and Outbox records must maintain transactional consistency in MySQL.
+Order persistence, stock reservations and required Outbox records must maintain transactional consistency in MySQL.
+
+Inbox records and local projection updates must also maintain transactional consistency.
 
 ### NFR-02 — Concurrency
 
 Reservations must be protected against concurrent race conditions through row locking and a deterministic lock acquisition strategy.
 
+The implementation must prevent over-reservation, including when multiple orders compete for the last available units.
+
 ### NFR-03 — Separation of Concerns
 
-The domain and use cases must not depend on Laravel, Eloquent, HTTP, or RabbitMQ.
+The Domain and Application layers must not depend on Laravel, Eloquent, HTTP, RabbitMQ or Symfony Messenger.
+
+Bounded contexts must not access or modify another context's internal domain model or persistence.
 
 ### NFR-04 — Testability
 
-Domain rules must be tested with fast unit tests. Adapters must be tested through integration tests.
+Domain rules must be tested with fast unit tests.
+
+Application use cases must be tested independently of infrastructure where practical.
+
+Adapters must be tested through integration tests.
+
+Message processing, projection updates and transaction boundaries must have appropriate automated coverage.
 
 ### NFR-05 — Idempotency
 
 Repeating a message must not repeat non-idempotent business effects.
+
+Message identifiers must remain stable across publication retries.
+
+Consumers must record successful processing atomically with their local effects.
 
 ### NFR-06 — Compatibility
 
@@ -68,11 +173,48 @@ New code must be compatible with PHP 8.3 and the versions of Laravel and librari
 
 ### NFR-07 — Security
 
-Secrets and credentials must not be included in logs, events, or responses. External inputs must be validated.
+Secrets and credentials must not be included in logs, events or responses.
+
+External inputs must be validated.
+
+Integration event payloads and projections must contain only the information required by their consumers.
 
 ### NFR-08 — Local Operability
 
-The development environment must document the required services, environment variables, migrations, tests, and workers.
+The development environment must document the required services, environment variables, migrations, tests and workers.
+
+The local setup must support running the Outbox publisher and message consumers.
+
+### NFR-09 — Eventual Consistency
+
+Cross-context projections are eventually consistent.
+
+The system must not assume that an integration event or projection update is immediately visible after the originating transaction commits.
+
+Use cases requiring authoritative state must obtain it from the owning context through an appropriate application boundary.
+
+In particular, order confirmation must use Inventory's authoritative stock state rather than a local inventory projection.
+
+### NFR-10 — Message Reliability
+
+The integration messaging infrastructure must support:
+
+- Reliable recording of messages through the transactional Outbox.
+- Asynchronous publication after the business transaction commits.
+- Retry of transient publication and consumption failures.
+- Isolation of messages that cannot be processed successfully.
+- Idempotent consumption.
+- Observability of pending, failed and successfully processed messages.
+
+The architecture provides at-least-once delivery, not exactly-once delivery.
+
+### NFR-11 — Projection Integrity
+
+Projection updates must be isolated from the source context's persistence.
+
+Consumers must be able to detect duplicate messages and, where aggregate versions are available, stale or out-of-order messages.
+
+Projection initialization and reconciliation must have a documented strategy.
 
 ## Initial Business Rules
 
@@ -85,8 +227,16 @@ The development environment must document the required services, environment var
 - A cancellation must not release stock twice.
 - Domain identifiers must not depend on specific database types.
 - An event must not carry secrets or information that the consumer does not need.
+- Each bounded context owns its domain model and business rules.
+- Cross-context read models belong to the consuming context.
+- Projections must not be used as the authority for business write decisions.
+- Business changes and their required Outbox messages must be committed atomically.
+- Consumer processing records and their local effects must be committed atomically.
+- Duplicate message delivery must not repeat successful processing effects.
 
 ## Pending Decisions Requiring Validation
+
+### Order Lifecycle and Business Rules
 
 - Whether an order is created directly in the `pending` state or confirmed within the same use case.
 - Whether modifying already-created orders is allowed.
@@ -96,4 +246,34 @@ The development environment must document the required services, environment var
 - Exact error format and HTTP status codes.
 - Authentication and authorization.
 - Cancellation policy after events have been published.
+- Whether order lines retain product descriptive snapshots.
 
+### Inventory Model
+
+- Whether `reserved` is stored on `StockItem` or derived from active reservations.
+- Whether exactly one `StockItem` must exist per `ProductId`.
+- Whether `StockReservation` is an entity within `StockItem` or a separate persistence model with its own lifecycle.
+
+### Integration Messaging
+
+- Exact integration event names, payloads and versions.
+- Which domain events must be translated into integration events.
+- Aggregate version generation and guarantees.
+- Retry policies and dead-letter handling details.
+- Message retention and Outbox cleanup policies.
+- Consumer behavior when an event version is missing or unsupported.
+
+### Projections
+
+- Exact fields required by each projection.
+- Projection initialization and reconciliation strategy.
+- Whether a controlled synchronization mechanism is required for initial data.
+- How projection freshness is communicated where relevant to API consumers.
+
+### Catalog
+
+- Whether Catalog will be implemented in the initial development scope or deferred.
+- Product attributes and lifecycle rules.
+- The exact integration events required by Orders and other consumers.
+
+These decisions must be resolved in the relevant task specifications or ADRs before implementation. They must not be silently assumed.

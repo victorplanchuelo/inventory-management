@@ -8,7 +8,7 @@ It captures the architectural lessons learned from reviewing the existing `User`
 
 The `User` context is considered a historical reference for understanding the current codebase, but it must not be treated as an unquestionable template for future development.
 
-New bounded contexts, including `Orders` and `Inventory`, must follow the principles defined in this document and the architectural decisions recorded in the project's ADRs.
+New bounded contexts, including `Orders`, `Inventory` and, when introduced, `Catalog`, must follow the principles defined in this document and the architectural decisions recorded in the project's ADRs.
 
 ## 2. Lessons Learned from the User Context
 
@@ -125,7 +125,7 @@ Some existing Application tests rely on Laravel and `RefreshDatabase`.
 
 New contexts should distinguish between test types and avoid introducing unnecessary framework dependencies into unit tests.
 
-The expected testing responsibilities are defined in section 7.
+The expected testing responsibilities are defined in section 9.
 
 ## 3. Architectural Layers
 
@@ -158,6 +158,8 @@ Aggregate Roots must protect their invariants and control changes to their inter
 
 Domain events must represent facts that have actually occurred in the domain.
 
+Domain events must not be treated automatically as external integration contracts.
+
 ### 3.2. Application
 
 The Application layer coordinates the execution of use cases.
@@ -171,6 +173,7 @@ It is responsible for:
 - Repository and service contracts required by use cases.
 - Orchestration of domain behavior.
 - Coordination of transaction boundaries through appropriate abstractions.
+- Defining the application-level requirements for reliable integration message recording when required by a use case.
 
 Rules:
 
@@ -179,6 +182,7 @@ Rules:
 - Must not use Laravel facades directly.
 - Must not contain infrastructure implementations.
 - Must not duplicate business invariants already owned by the Domain.
+- Must not depend directly on RabbitMQ or Symfony Messenger.
 
 CQRS should be applied pragmatically where it improves clarity or separation of responsibilities.
 
@@ -194,7 +198,11 @@ It is responsible for:
 - Database access.
 - Unit of Work or transaction adapters where required.
 - Outbox persistence and publishing.
+- Inbox or processed-message persistence.
+- Integration event serialization and deserialization.
 - RabbitMQ and Symfony Messenger integration.
+- Message consumers and subscribers.
+- Projection persistence and mapping.
 - External service adapters.
 
 Infrastructure implementations must respect the contracts defined by inner layers.
@@ -243,29 +251,221 @@ Rules:
 
 Although physically located inside Infrastructure, this layer is conceptually an inbound adapter in the Hexagonal Architecture.
 
-## 4. Domain Events and Integration
+## 4. Domain Events and Integration Events
 
-Domain events must represent meaningful business facts.
+Domain events and integration events have different responsibilities.
+
+### 4.1. Domain Events
+
+Domain events:
+
+- Represent facts that have occurred inside the owning domain.
+- Are produced by domain behavior.
+- Must not depend on RabbitMQ, Messenger or database models.
+- Must not contain sensitive information.
+- Must not be designed around transport serialization requirements.
+
+A domain event is internal to its bounded context unless the context explicitly decides to expose the corresponding fact externally.
+
+### 4.2. Integration Events
+
+Integration events are external contracts used to communicate business facts between bounded contexts.
 
 Rules:
 
-- Events are created as a consequence of domain behavior.
-- Events must not contain sensitive information.
-- Events must not depend on RabbitMQ, Messenger or database models.
-- Event identifiers must not impose unnecessary storage-specific constraints.
-- Publishing integration events must respect the transactional Outbox architecture.
+- The producing context owns the contract and its meaning.
+- Consumers must not depend on the producer's internal domain classes.
+- Events must contain only the information required by consumers.
+- Events must not expose secrets or sensitive information.
+- Contracts must have explicit names and versions.
+- Incompatible changes require a new contract version or an explicitly documented compatibility strategy.
+- Transport-specific details must remain outside the Domain.
 
-The transactional Outbox approach is defined in:
+A context may translate one or more domain events into an integration event. It may also create an integration event from an application-level business outcome when appropriate.
 
-- `docs/adr/003-outbox-rabbitmq.md`
+Not every domain event must be published externally.
 
-The event must be recorded in the Outbox within the same transaction as the business state change whenever reliable publication is required.
+### 4.3. Integration Event Envelope
 
-The publisher and message consumers belong to Infrastructure.
+The integration message envelope should provide the following metadata:
 
-Consumers must be designed to handle duplicate delivery safely.
+- `eventId`: globally unique message identifier.
+- `eventName`: stable event name.
+- `eventVersion`: contract version.
+- `aggregateType`: type of the originating aggregate.
+- `aggregateId`: identifier of the originating aggregate, independent of database-specific types.
+- `aggregateVersion`: sequential aggregate version when available and required.
+- `occurredAt`: timestamp of the business occurrence.
+- `payload`: event-specific data.
 
-## 5. Primitive Mapping and Reconstruction
+The exact serialization format and persistence representation belong to Infrastructure and must be defined by the relevant implementation task.
+
+`aggregateVersion` may be used to detect stale or out-of-order messages. Consumers must only rely on it when the producer guarantees its generation and monotonicity.
+
+### 4.4. Producer Responsibilities
+
+Each bounded context that publishes integration events is responsible for:
+
+- Defining and maintaining its public event contracts.
+- Translating internal business facts into external contracts.
+- Recording integration messages in its own Outbox.
+- Persisting business changes and corresponding Outbox messages atomically.
+- Publishing messages asynchronously after commit.
+- Maintaining stable message identifiers across retries.
+- Providing observability for publication failures and pending messages.
+
+A producer must never update another context's projection or database tables directly.
+
+### 4.5. Consumer Responsibilities
+
+Each consuming context is responsible for:
+
+- Subscribing only to the integration events it needs.
+- Validating the event name and supported version.
+- Translating external contracts into its own application or projection model.
+- Handling duplicate delivery safely.
+- Handling or isolating malformed and unsupported messages.
+- Updating its local state and processed-message record atomically when both are required.
+
+Consumers must not modify the producer's aggregates or persistence.
+
+### 4.6. Integration Event Naming
+
+Event names must describe a business fact that has already occurred.
+
+Candidate event names include:
+
+- Catalog: `ProductCreated`, `ProductUpdated`, `ProductDiscontinued`.
+- Inventory: `StockAdded`, `StockReserved`, `StockReleased`.
+- Orders: `OrderConfirmed`, `OrderCancelled`.
+
+These are candidate contracts. Their final payloads, versions and publication requirements must be defined in the relevant task specifications before implementation.
+
+## 5. Transactional Outbox
+
+New business operations that require reliable integration event publication must use the transactional Outbox approach defined in ADR 003.
+
+Rules:
+
+- The business state change and its Outbox records must be persisted in the same database transaction.
+- The Outbox must store the integration contract, not an arbitrary reference to an in-memory domain object.
+- Publication to RabbitMQ must happen asynchronously after commit.
+- A publisher failure must not lose the pending message.
+- A message must retain the same `eventId` across publication retries.
+- Duplicate publication must be expected and handled by consumers.
+- The publisher must not own or modify domain business rules.
+
+The publisher belongs to Infrastructure and must operate independently from the request lifecycle.
+
+The Outbox is not an Event Store. It is a reliable record of messages waiting to be published and their publication state.
+
+Retention, cleanup and archival policies must not be confused with event sourcing or assumed to provide a permanent event history.
+
+## 6. Inbox and Idempotent Consumption
+
+Consumers must be designed for at-least-once delivery.
+
+An Inbox or equivalent processed-message mechanism must prevent duplicate delivery from repeating local effects.
+
+Rules:
+
+- Every integration message must have a stable unique `eventId`.
+- The consumer must identify whether that message has already been processed.
+- The processed-message record and the local projection or business update must be committed in the same transaction.
+- A failed transaction must leave neither a processed-message record nor partial projection changes.
+- A message redelivered after a successful commit must not repeat its effects.
+- Different consumers must maintain independent processing records.
+
+The Inbox belongs to the consuming context. It must not become a central registry that knows every context's business model.
+
+### 6.1. Out-of-Order Messages
+
+Where aggregate versions are available, a consumer may use them to detect stale or out-of-order messages.
+
+The policy must be explicit for each consumer or projection.
+
+Possible behaviors include:
+
+- Ignore an event whose aggregate version is older than the version already applied.
+- Defer processing when a required previous version is missing.
+- Reconcile the local projection with the owning context when a gap cannot be resolved through normal delivery.
+
+Consumers must not silently assume that RabbitMQ delivery order is sufficient to guarantee projection consistency.
+
+## 7. Cross-Context Projections and Read Models
+
+A projection is a read-optimized representation of information maintained by a consuming bounded context.
+
+Projections allow a context to answer its own queries without directly reading another context's tables or loading another context's aggregates.
+
+### 7.1. Projection Ownership
+
+Each projection belongs to the bounded context that consumes and uses it.
+
+For example:
+
+- Orders may maintain a product projection containing product information required to display order lines.
+- Orders may maintain an inventory projection containing available and reserved quantities for read and display purposes.
+- Other contexts may maintain their own projections according to their query requirements.
+
+The source context remains the owner of the original information.
+
+A projection is not a shared aggregate, shared repository or replacement for the source context.
+
+### 7.2. Projection Updates
+
+Projections must be updated through explicit integration event consumers.
+
+The consuming context is responsible for:
+
+- Defining the projection schema.
+- Selecting the integration events it needs.
+- Mapping event payloads into its local read model.
+- Handling duplicate messages through its Inbox.
+- Applying an explicit policy for out-of-order messages.
+- Maintaining the projection and processed-message record atomically.
+- Defining how the projection can be initialized or reconciled.
+
+A context must not query another context's internal tables to maintain its projection.
+
+### 7.3. Projection-Based Queries
+
+A context may use its own projections as the source for API queries when they provide the required read model.
+
+Rules:
+
+- Query handlers must access projections through context-owned query ports or equivalent abstractions.
+- API controllers must not access projection tables directly.
+- A context must not bypass its boundary by reading another context's repositories, aggregates or tables.
+- The API contract must account for eventual consistency where applicable.
+
+Projection-backed reads are eventually consistent. They may temporarily represent an earlier state than the source context.
+
+### 7.4. Projections Are Not Authoritative for Writes
+
+A projection must not be used to make a business decision that requires the authoritative state of another context.
+
+In particular, an Orders inventory projection is advisory.
+
+Order confirmation must synchronously validate and reserve stock against Inventory's authoritative state, within the same MySQL transaction and locking strategy defined in ADR 002.
+
+### 7.5. Projection Rebuilding and Reconciliation
+
+The Outbox is a publication mechanism, not an Event Store.
+
+The system must not assume that all historical Outbox records will remain available indefinitely or can always be replayed to rebuild every projection.
+
+Each projection's initialization, rebuilding and reconciliation strategy must be defined according to its requirements.
+
+Possible approaches include:
+
+- Controlled synchronization with the owning context.
+- A dedicated snapshot or export mechanism.
+- A separately retained event archive, if historical replay is an explicit requirement.
+
+No general-purpose projection engine or Event Sourcing architecture is required.
+
+## 8. Primitive Mapping and Reconstruction
 
 Domain objects may expose primitive representations through:
 
@@ -301,11 +501,11 @@ Tests must verify:
 - Round-trip consistency.
 - Preservation of relevant domain state.
 
-This representation must remain independent of API contracts and persistence schemas.
+This representation must remain independent of API contracts, integration event contracts and persistence schemas.
 
 Infrastructure mappers are responsible for adapting it to database models and columns.
 
-## 6. Identifiers and Value Objects
+## 9. Identifiers and Value Objects
 
 Domain identifiers must be represented through appropriate Value Objects.
 
@@ -316,14 +516,17 @@ Rules:
 - The Domain must not assume that every identifier is an integer.
 - UUIDs or other identifier formats may be used where appropriate.
 - Persistence adapters are responsible for translating between domain identifiers and storage representations.
+- Integration event envelopes must represent aggregate identifiers in a transport-independent form.
 
-Shared identifier contracts must be reviewed before reuse.
+Shared identifier and event contracts must be reviewed before reuse.
 
-## 7. Testing Strategy
+Changes to existing Shared contracts must consider compatibility with the historical `User` context.
+
+## 10. Testing Strategy
 
 Tests must be organized according to architectural responsibility.
 
-### 7.1. Domain Unit Tests
+### 10.1. Domain Unit Tests
 
 Domain tests must:
 
@@ -337,7 +540,7 @@ Domain tests must:
 
 Domain tests must not require a database or external infrastructure.
 
-### 7.2. Application Unit Tests
+### 10.2. Application Unit Tests
 
 Application tests must:
 
@@ -345,9 +548,10 @@ Application tests must:
 - Use test doubles for ports and dependencies.
 - Verify interactions with repository contracts and other abstractions.
 - Verify application-level error handling.
+- Verify transaction coordination through the relevant abstraction.
 - Avoid requiring Laravel bootstrapping when it is not necessary.
 
-### 7.3. Infrastructure Integration Tests
+### 10.3. Infrastructure Integration Tests
 
 Infrastructure tests must verify concrete implementations, including where appropriate:
 
@@ -355,12 +559,16 @@ Infrastructure tests must verify concrete implementations, including where appro
 - Database mappings.
 - Transaction handling.
 - Outbox persistence.
+- Publisher behavior and retries.
+- Inbox idempotency.
+- Integration event serialization and deserialization.
+- Projection updates.
+- Duplicate and out-of-order message handling.
 - RabbitMQ publishing and consumption.
-- Integration with external services.
 
 These tests may require Laravel, MySQL, RabbitMQ or other infrastructure.
 
-### 7.4. API Feature Tests
+### 10.4. API Feature Tests
 
 API tests must verify:
 
@@ -369,10 +577,11 @@ API tests must verify:
 - HTTP response structures and status codes.
 - Mapping between HTTP and Application layers.
 - HTTP-specific error handling.
+- Projection-backed query behavior where applicable.
 
 Tests must cover the externally observable behavior of the API.
 
-## 8. Bounded Context Independence
+## 11. Bounded Context Independence
 
 Each bounded context must own its domain model and business rules.
 
@@ -380,27 +589,33 @@ Rules:
 
 - Aggregates must not be shared between bounded contexts.
 - A context must not modify another context's internal domain objects.
-- Cross-context communication must use explicit contracts and integration mechanisms.
+- A context must not query another context's internal persistence tables.
+- Cross-context communication must use explicit integration contracts and messaging mechanisms.
+- Projections must be owned by the consuming context.
 - Shared code must be limited to genuinely generic concepts.
 - Shared abstractions must not introduce accidental coupling between contexts.
 
 The existence of a Shared namespace does not justify placing every reusable class or contract there.
 
-## 9. Architecture Decision Records
+Shared transport infrastructure may be reused when it does not introduce dependencies on other contexts' domain models or business rules.
+
+## 12. Architecture Decision Records
 
 Architecture decisions that affect the structure, consistency or long-term evolution of the system must be documented through ADRs.
 
-Relevant existing decisions include:
+Relevant decisions include:
 
 - `docs/adr/001-modular-monolith.md`
 - `docs/adr/002-atomic-stock-reservation.md`
 - `docs/adr/003-outbox-rabbitmq.md`
+- `docs/adr/004-integration-events-and-cross-context-communication.md`
+- `docs/adr/005-cross-context-projections.md`
 
 New implementations must respect accepted ADRs.
 
 If an implementation requires changing an existing architectural decision, the change must be evaluated and documented before implementation.
 
-## 10. Applying This Reference to New Features
+## 13. Applying This Reference to New Features
 
 Before implementing a new feature:
 
@@ -419,7 +634,7 @@ The implementation plan defines how it will be achieved.
 
 The implementation must respect both the approved plan and the architectural constraints documented in this reference.
 
-## 11. Scope and Evolution
+## 14. Scope and Evolution
 
 This document establishes the architectural reference for new StockFlow development.
 
