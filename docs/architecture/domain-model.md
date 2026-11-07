@@ -1,83 +1,83 @@
-# Modelo de dominio — StockFlow
+# Domain Model — StockFlow
 
-Este documento describe un modelo inicial. Los nombres, límites y reglas deben contrastarse con el código y ajustarse mediante tests y ADRs antes de consolidarlos.
+This document describes an initial model. Names, boundaries, and rules must be validated against the code and adjusted through tests and ADRs before being finalized.
 
-## Módulo Orders
+## Orders Module
 
 ### Aggregate: Order
-Responsabilidad: mantener la consistencia del pedido y sus transiciones de estado.
+Responsibility: preserve the consistency of the order and its state transitions.
 
-Conceptos candidatos:
-- `OrderId`: identidad del pedido.
-- `OrderItem`: línea del pedido, con `ProductId` y `Quantity`.
-- `OrderStatus`: estado explícito, por ejemplo `Pending`, `Confirmed`, `Cancelled`.
-- `OrderRepository`: puerto de persistencia definido en Application o en la ubicación que siga la convención existente.
+Candidate concepts:
+- `OrderId`: order identity.
+- `OrderItem`: order line, with `ProductId` and `Quantity`.
+- `OrderStatus`: explicit state, for example `Pending`, `Confirmed`, `Cancelled`.
+- `OrderRepository`: persistence port defined in Application or in the location that follows the existing convention.
 
-Invariantes candidatas:
-- Un pedido contiene al menos una línea.
-- Las cantidades son positivas.
-- No se confirma un pedido ya cancelado.
-- No se cancela un pedido en un estado no cancelable.
-- No se confirma un pedido si no se ha completado la reserva de todas sus líneas.
+Candidate invariants:
+- An order contains at least one line.
+- Quantities are positive.
+- An order that has been cancelled cannot be confirmed.
+- An order cannot be cancelled in a non-cancellable state.
+- An order cannot be confirmed if the reservation of all its lines has not been completed.
 
-El agregado Order no debe consultar directamente el inventario mediante Eloquent ni conocer RabbitMQ. La coordinación entre agregados pertenece al caso de uso.
+The Order aggregate must not query Inventory directly through Eloquent or know about RabbitMQ. Coordination between aggregates belongs to the use case.
 
-Eventos candidatos:
+Candidate events:
 - `OrderCreated`
 - `OrderConfirmed`
 - `OrderCancelled`
 
-Los eventos de integración deben contener identificadores y datos mínimos necesarios, nunca contraseñas ni secretos.
+Integration events must contain only the identifiers and minimum data required, never passwords or secrets.
 
-## Módulo Inventory
+## Inventory Module
 
 ### Aggregate: StockItem
-Responsabilidad: proteger la cantidad y disponibilidad de un producto en inventario.
+Responsibility: protect the quantity and availability of a product in inventory.
 
-Conceptos candidatos:
+Candidate concepts:
 - `StockItemId`
 - `ProductId`
 - `Quantity`
-- `StockReservation` o entidad/registro de reserva con identidad propia.
+- `StockReservation` or a reservation entity/record with its own identity.
 - `StockRepository`
 
-Invariantes candidatas:
-- El stock disponible nunca es negativo.
-- Una reserva no supera el disponible.
-- Una reserva solo se libera una vez.
-- Añadir stock requiere una cantidad positiva.
-- Las operaciones concurrentes no pueden sobre-reservar unidades.
+Candidate invariants:
+- Available stock is never negative.
+- A reservation does not exceed available stock.
+- A reservation is released only once.
+- Adding stock requires a positive quantity.
+- Concurrent operations cannot over-reserve units.
 
-Definición conceptual:
+Conceptual definition:
 
 `available = on_hand - reserved`
 
-Acordar si `reserved` se almacena o se deriva de reservas activas. Evitar duplicar contadores sin una estrategia clara de consistencia.
+Agree on whether `reserved` is stored or derived from active reservations. Avoid duplicating counters without a clear consistency strategy.
 
-Eventos candidatos:
+Candidate events:
 - `StockReserved`
 - `StockReleased`
 - `StockAdded`
 
-## Coordinación entre módulos
+## Coordination Between Modules
 
-El caso de uso de creación/confirmación de pedido coordina Orders e Inventory. La decisión de reservar debe ejecutarse en la misma transacción MySQL que persiste el pedido.
+The order creation/confirmation use case coordinates Orders and Inventory. The reservation decision must be executed in the same MySQL transaction that persists the order.
 
-No se recomienda que `Order` mantenga una referencia directa al agregado `StockItem`, ni que Inventory dependa del agregado Order.
+It is not recommended for `Order` to hold a direct reference to the `StockItem` aggregate, or for Inventory to depend on the Order aggregate.
 
-## Identificadores y Value Objects
+## Identifiers and Value Objects
 
-- Preferir tipos explícitos para IDs y cantidades.
-- No acoplar IDs de dominio a `int` si la estrategia elegida utiliza UUID/ULID.
-- Validar primitivas al construir Value Objects.
-- `fromPrimitives()` debe reconstruir Value Objects explícitamente.
-- `toPrimitives()` debe devolver primitivas, no objetos Value Object.
-- Evitar exponer internamente propiedades mutables.
+- Prefer explicit types for IDs and quantities.
+- Do not couple domain IDs to `int` if the chosen strategy uses UUID/ULID.
+- Validate primitives when constructing Value Objects.
+- `fromPrimitives()` must explicitly reconstruct Value Objects.
+- `toPrimitives()` must return primitives, not Value Objects.
+- Avoid exposing mutable properties internally.
 
-## Eventos de dominio e integración
+## Domain and Integration Events
 
-Distinguir:
-- Evento de dominio: hecho relevante ocurrido dentro del modelo.
-- Mensaje de integración: contrato publicado a otros módulos/procesos.
+Distinguish:
+- Domain event: a relevant fact that occurred within the model.
+- Integration message: a contract published to other modules/processes.
 
-No todos los eventos de dominio tienen que salir a RabbitMQ. La traducción y publicación deben estar controladas por Application/Infrastructure y respetar los contratos existentes.
+Not all domain events have to be sent to RabbitMQ. Translation and publishing must be controlled by Application/Infrastructure and comply with existing contracts.

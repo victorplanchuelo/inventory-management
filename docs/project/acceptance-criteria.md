@@ -1,74 +1,94 @@
-# Criterios de aceptación — StockFlow
 
-Los criterios siguientes describen resultados observables. Deben convertirse en tests automatizados donde sea posible.
 
-## Pedidos y reservas
+# Acceptance Criteria — StockFlow
 
-### AC-01 — Pedido con stock suficiente
-**Dado** que todos los productos tienen stock disponible suficiente  
-**Cuando** se crea un pedido con esas líneas  
-**Entonces** el pedido queda confirmado y se registra una reserva por cada línea.
+The following criteria describe observable outcomes. They should be converted into automated tests wherever possible.
 
-### AC-02 — Stock insuficiente en una línea
-**Dado** que una línea del pedido solicita más unidades de las disponibles  
-**Cuando** se intenta crear/confirmar el pedido  
-**Entonces** la operación falla con un error de negocio claro, el pedido no queda confirmado y no persiste ninguna reserva parcial.
+## Orders and Reservations
 
-### AC-03 — Pedido vacío
-**Cuando** se intenta crear un pedido sin líneas  
-**Entonces** el dominio rechaza la operación.
+### AC-01 — Order with Sufficient Stock
 
-### AC-04 — Cantidad inválida
-**Cuando** una línea tiene cantidad cero o negativa  
-**Entonces** se rechaza antes de persistir cambios.
+**Given** that all products have sufficient available stock  
+**When** an order is created with those line items  
+**Then** the order is confirmed and one reservation is recorded for each line item.
 
-### AC-05 — Cancelación válida
-**Dado** un pedido cancelable con reservas activas  
-**Cuando** se cancela  
-**Entonces** el pedido pasa al estado cancelado y las reservas se liberan una sola vez.
+### AC-02 — Insufficient Stock for One Line Item
 
-### AC-06 — Cancelación repetida
-**Dado** un pedido ya cancelado  
-**Cuando** se solicita cancelarlo de nuevo  
-**Entonces** el comportamiento sigue la política explícita del dominio y nunca duplica la liberación de stock.
+**Given** that one order line item requests more units than are available  
+**When** the order creation/confirmation is attempted  
+**Then** the operation fails with a clear business error, the order is not confirmed, and no partial reservation is persisted.
 
-## Concurrencia y persistencia
+### AC-03 — Empty Order
 
-### AC-07 — Dos pedidos compiten por las últimas unidades
-**Dado** que el stock disponible no cubre ambos pedidos  
-**Cuando** ambos intentan reservar concurrentemente  
-**Entonces** como máximo se confirma el pedido que cabe en el stock y el inventario nunca queda negativo.
+**When** an order is created without line items  
+**Then** the domain rejects the operation.
 
-### AC-08 — Orden determinista de locks
-Las líneas/productos se bloquean en un orden estable para reducir el riesgo de deadlocks.
+### AC-04 — Invalid Quantity
+
+**When** a line item has a zero or negative quantity  
+**Then** it is rejected before any changes are persisted.
+
+### AC-05 — Valid Cancellation
+
+**Given** a cancellable order with active reservations  
+**When** the order is cancelled  
+**Then** the order transitions to the cancelled state and the reservations are released exactly once.
+
+### AC-06 — Repeated Cancellation
+
+**Given** an order that has already been cancelled  
+**When** cancellation is requested again  
+**Then** the behavior follows the domain's explicit policy and never duplicates the stock release.
+
+## Concurrency and Persistence
+
+### AC-07 — Two Orders Competing for the Last Available Units
+
+**Given** that the available stock is insufficient to cover both orders  
+**When** both attempt to reserve stock concurrently  
+**Then** at most the order that fits within the available stock is confirmed, and inventory never becomes negative.
+
+### AC-08 — Deterministic Lock Ordering
+
+Line items/products are locked in a stable order to reduce the risk of deadlocks.
 
 ### AC-09 — Rollback
-Si falla cualquier escritura de la operación transaccional, se revierten pedido, líneas, reservas y mensajes Outbox asociados.
 
-## Outbox y RabbitMQ
+If any write within the transactional operation fails, the order, line items, reservations, and associated Outbox messages are rolled back.
 
-### AC-10 — Registro Outbox atómico
-El cambio de negocio y su mensaje Outbox se confirman o revierten juntos.
+## Outbox and RabbitMQ
 
-### AC-11 — RabbitMQ no disponible
-Si RabbitMQ está caído después del commit, el pedido confirmado y el mensaje Outbox permanecen persistidos para reintento posterior.
+### AC-10 — Atomic Outbox Recording
 
-### AC-12 — Entrega duplicada
-Si un consumidor recibe dos veces el mismo mensaje, no repite el efecto de negocio.
+The business change and its Outbox message are committed or rolled back together.
 
-### AC-13 — Fallo del consumidor
-Los errores transitorios se reintentan según configuración. Los fallos permanentes terminan aislados y son observables.
+### AC-11 — RabbitMQ Unavailable
 
-## Calidad y API
+If RabbitMQ is unavailable after the commit, the confirmed order and Outbox message remain persisted for a subsequent retry.
 
-### AC-14 — Dominio independiente
-Los tests unitarios de dominio se ejecutan sin levantar Laravel, MySQL o RabbitMQ.
+### AC-12 — Duplicate Delivery
 
-### AC-15 — Contrato HTTP
-Las rutas devuelven códigos y estructuras de respuesta documentados y validan las entradas.
+If a consumer receives the same message twice, it does not repeat the business effect.
 
-### AC-16 — Calidad automatizada
-La CI ejecuta tests, análisis estático y chequeos de estilo configurados en el repositorio.
+### AC-13 — Consumer Failure
 
-### AC-17 — Instalación reproducible
-Una persona que clone el proyecto puede levantar dependencias, configurar entorno, ejecutar migraciones y correr tests siguiendo la documentación.
+Transient errors are retried according to the configuration. Permanent failures are isolated and observable.
+
+## Quality and API
+
+### AC-14 — Independent Domain
+
+Domain unit tests run without starting Laravel, MySQL, or RabbitMQ.
+
+### AC-15 — HTTP Contract
+
+Routes return documented status codes and response structures, and validate incoming data.
+
+### AC-16 — Automated Quality
+
+CI runs tests, static analysis, and the code style checks configured in the repository.
+
+### AC-17 — Reproducible Setup
+
+Anyone who clones the project can start its dependencies, configure the environment, run migrations, and execute tests by following the documentation.
+

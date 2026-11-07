@@ -1,45 +1,54 @@
-# Registro de implementación asistida
 
-Usa una entrada por tarea. Mantén el registro breve y factual.
 
-## Plantilla
+# AI-Assisted Implementation Log
 
-### YYYY-MM-DD — Título de la tarea
+Use one entry per task. Keep the log brief and factual.
 
-**Objetivo**
-- Qué comportamiento se quería conseguir.
+## Template
+
+### YYYY-MM-DD — Task Title
+
+**Objective**
+
+- What behavior was intended.
 
 **Research**
-- Archivos inspeccionados:
-- Comportamiento existente:
-- Contratos reutilizados:
-- Hechos comprobados:
-- Hipótesis/riesgos:
 
-**Plan aprobado**
-- Archivos a crear/modificar:
-- Diseño:
-- Tests previstos:
-- Criterios de aceptación:
+- Files inspected:
+- Existing behavior:
+- Reused contracts:
+- Verified facts:
+- Hypotheses/risks:
 
-**Implementación**
-- Cambios realizados:
-- Decisiones tomadas:
-- Cambios descartados y motivo:
+**Approved Plan**
 
-**Verificación**
-- Comando:
-- Resultado:
-- Entorno:
-- Tests no ejecutados y motivo:
+- Files to create/modify:
+- Design:
+- Planned tests:
+- Acceptance criteria:
 
-**Revisión humana**
-- ¿Puedo explicar el cambio sin ayuda?
-- ¿Qué cambiaría si tuviera más tiempo?
-- ¿Qué deuda técnica queda?
+**Implementation**
+
+- Changes made:
+- Decisions taken:
+- Discarded changes and reasons:
+
+**Verification**
+
+- Command:
+- Result:
+- Environment:
+- Tests not executed and reasons:
+
+**Human Review**
+
+- Can I explain the change without assistance?
+- What would I change if I had more time?
+- What technical debt remains?
 
 ---
 
-## Registro
+## Log
 
-_Aún no se han registrado implementaciones en este documento._
+*No implementations have been recorded in this document yet.*
+

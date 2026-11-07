@@ -1,78 +1,88 @@
-# Acuerdos de trabajo con IA
 
-## Objetivo
 
-Usar asistentes de IA para acelerar investigación, planificación, implementación y revisión sin delegar la comprensión ni las decisiones de arquitectura.
+# AI Working Agreements
 
-La persona responsable del repositorio debe poder explicar, modificar y defender cada cambio.
+## Objective
 
-## Flujo obligatorio: Research → Plan → Implement
+Use AI assistants to accelerate research, planning, implementation, and review without delegating understanding or architectural decisions.
+
+The person responsible for the repository must be able to explain, modify, and defend every change.
+
+## Mandatory Workflow: Research → Plan → Implement
 
 ### Research
-La IA debe:
-- Leer los archivos implicados y sus dependencias.
-- Describir el comportamiento actual.
-- Identificar convenciones, contratos y tests existentes.
-- Comprobar versiones y compatibilidad.
-- Separar hechos verificados de hipótesis.
-- No modificar archivos.
+
+The AI must:
+
+- Read the files involved and their dependencies.
+- Describe the current behavior.
+- Identify existing conventions, contracts, and tests.
+- Check versions and compatibility.
+- Separate verified facts from hypotheses.
+- Not modify any files.
 
 ### Plan
-La IA debe proponer:
-- Objetivo y alcance.
-- Archivos que cambiará.
-- Diseño y responsabilidades.
-- Tests, incluidos casos negativos.
-- Criterios de aceptación.
-- Riesgos y alternativas.
 
-No debe implementar hasta recibir aprobación explícita.
+The AI must propose:
+
+- Objective and scope.
+- Files to be changed.
+- Design and responsibilities.
+- Tests, including negative test cases.
+- Acceptance criteria.
+- Risks and alternatives.
+
+Implementation must not begin until explicit approval is received.
 
 ### Implement
-La IA debe:
-- Cambiar únicamente el alcance aprobado.
-- Trabajar en incrementos pequeños.
-- Añadir tests relevantes.
-- Evitar refactors y dependencias no solicitados.
-- Ejecutar los checks disponibles.
-- Mostrar diff y explicar decisiones.
 
-## Reglas para la persona responsable
+The AI must:
 
-1. No aceptar código que no pueda explicar.
-2. Revisar el diff completo antes de integrar.
-3. Ejecutar tests localmente, no confiar solo en el resumen del agente.
-4. Revisar especialmente tests negativos y de concurrencia.
-5. Mantener commits pequeños y descriptivos.
-6. Registrar decisiones arquitectónicas en ADRs.
-7. Cerrar el chat después de una tarea y comprobar si se puede explicar el diseño sin ayuda.
-8. No permitir que la IA cambie versiones mayores, contratos o estructura global sin aprobación.
+- Change only the approved scope.
+- Work in small increments.
+- Add relevant tests.
+- Avoid unrequested refactoring and dependencies.
+- Run the available checks.
+- Show the diff and explain decisions.
 
-## Preguntas de revisión para cada cambio
+## Rules for the Person Responsible
 
-- ¿Qué problema resuelve?
-- ¿Por qué esta responsabilidad vive en esta capa?
-- ¿Qué alternativa se descartó y por qué?
-- ¿Qué invariantes protege?
-- ¿Qué ocurre si falla a mitad de operación?
-- ¿Qué ocurre si el mensaje se entrega dos veces?
-- ¿Qué tests demuestran el comportamiento?
-- ¿Qué archivos o módulos existentes pueden verse afectados?
+1. Do not accept code that cannot be explained.
+2. Review the complete diff before integrating changes.
+3. Run tests locally; do not rely solely on the agent's summary.
+4. Pay special attention to negative and concurrency tests.
+5. Keep commits small and descriptive.
+6. Record architectural decisions in ADRs.
+7. Close the chat after a task and check whether the design can be explained without assistance.
+8. Do not allow the AI to change major versions, contracts, or global structure without approval.
 
-## Límites
+## Review Questions for Every Change
 
-- No generar el proyecto completo en una única petición.
-- No inventar clases ni métodos de Shared.
-- No propagar secretos o datos sensibles en eventos.
-- No introducir microservicios, Redis, CQRS complejo o event sourcing sin decisión expresa.
-- No ocultar fallos de análisis desactivando reglas o reduciendo cobertura.
-- No afirmar que se ejecutó una prueba si no se ejecutó realmente.
+- What problem does it solve?
+- Why does this responsibility belong in this layer?
+- Which alternative was rejected and why?
+- Which invariants does it protect?
+- What happens if it fails halfway through an operation?
+- What happens if the message is delivered twice?
+- Which tests demonstrate the behavior?
+- Which existing files or modules may be affected?
 
-## Definición de terminado
+## Limits
 
-Una tarea está terminada cuando:
-- Cumple criterios de aceptación.
-- Tiene tests adecuados.
-- Pasa los checks aplicables o documenta claramente los bloqueos.
-- El diff no contiene cambios ajenos.
-- La persona responsable entiende el código y puede explicar sus compromisos.
+- Do not generate the entire project in a single request.
+- Do not invent Shared classes or methods.
+- Do not propagate secrets or sensitive data in events.
+- Do not introduce microservices, Redis, complex CQRS, or event sourcing without an explicit decision.
+- Do not hide analysis failures by disabling rules or reducing coverage.
+- Do not claim that a test was executed if it was not actually run.
+
+## Definition of Done
+
+A task is complete when:
+
+- It meets the acceptance criteria.
+- It has appropriate tests.
+- It passes the applicable checks or clearly documents any blockers.
+- The diff contains no unrelated changes.
+- The person responsible understands the code and can explain its trade-offs.
+

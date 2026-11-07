@@ -1,72 +1,80 @@
-# StockFlow — visión del producto
 
-## Propósito
 
-StockFlow es una API backend para gestionar pedidos y disponibilidad de inventario. Su objetivo es demostrar diseño de software mantenible en PHP/Laravel, modelado de dominio, arquitectura hexagonal, consistencia transaccional, mensajería asíncrona y pruebas automatizadas.
+# StockFlow — Product Overview
 
-No se plantea como una plataforma de microservicios ni como un producto con frontend. Es un **monolito modular** con límites internos claros.
+## Purpose
 
-## Usuarios y necesidades
+StockFlow is a backend API for managing orders and inventory availability. Its purpose is to demonstrate maintainable software design in PHP/Laravel, domain modeling, hexagonal architecture, transactional consistency, asynchronous messaging, and automated testing.
 
-Los consumidores de la API necesitan:
-- Crear pedidos con una o varias líneas.
-- Saber si un pedido ha sido confirmado o rechazado por falta de stock.
-- Consultar el estado y detalle de un pedido.
-- Cancelar pedidos cuando la política de negocio lo permita.
-- Dar de alta inventario y añadir unidades.
-- Consultar disponibilidad.
-- Recibir efectos derivados de los cambios mediante eventos asíncronos.
+It is not intended to be a microservices platform or a product with a frontend. It is a **modular monolith** with clear internal boundaries.
 
-Los perfiles concretos de usuario, autenticación, autorización y multi-tenancy quedan fuera del alcance inicial salvo que el repositorio ya los exija.
+## Users and Needs
 
-## Alcance funcional inicial
+API consumers need to:
 
-### Pedidos
-- Crear un pedido con una o más líneas.
-- Confirmar el pedido solo si se puede reservar la totalidad del stock requerido.
-- Consultar un pedido.
-- Cancelar un pedido sujeto a sus reglas de estado y liberación de reservas.
+- Create orders with one or more line items.
+- Know whether an order has been confirmed or rejected due to insufficient stock.
+- Retrieve an order's status and details.
+- Cancel orders when permitted by business policy.
+- Register inventory and add units.
+- Check availability.
+- Receive side effects derived from changes through asynchronous events.
 
-### Inventario
-- Registrar stock para un producto.
-- Añadir unidades.
-- Consultar cantidades disponibles y reservadas.
-- Reservar y liberar stock mediante operaciones coordinadas con pedidos.
+Specific user profiles, authentication, authorization, and multi-tenancy are outside the initial scope unless the repository already requires them.
 
-### Integración asíncrona
-- Registrar eventos que deban publicarse en Outbox dentro de la transacción de negocio.
-- Publicarlos en RabbitMQ después del commit.
-- Procesarlos mediante consumidores idempotentes.
-- Dejar preparada una extensión para broadcasting en tiempo real; no es requisito prioritario disponer de una interfaz visual.
+## Initial Functional Scope
 
-## Fuera de alcance inicial
+### Orders
 
-- Frontend o aplicación móvil.
-- Microservicios desplegables de forma independiente.
-- Event sourcing completo.
-- CQRS distribuido o proyecciones complejas.
-- Pagos, facturación, envíos y gestión de proveedores.
-- Orquestación compleja de workflows.
-- Kubernetes y observabilidad empresarial avanzada.
-- Garantía de entrega exactly-once.
+- Create an order with one or more line items.
+- Confirm an order only if the entire required stock quantity can be reserved.
+- Retrieve an order.
+- Cancel an order subject to its status rules and reservation release.
 
-## Criterios de éxito
+### Inventory
 
-El proyecto se considera demostrable cuando:
-1. Se puede arrancar localmente siguiendo el README del repositorio.
-2. Se pueden ejecutar tests unitarios y de integración relevantes.
-3. Un pedido con stock suficiente se confirma y reserva todas sus líneas.
-4. Un pedido sin stock suficiente no deja reservas parciales ni pedido confirmado.
-5. Las operaciones concurrentes no permiten reservar más unidades de las disponibles.
-6. El evento de negocio se persiste en Outbox en la misma transacción.
-7. El publisher entrega mensajes a RabbitMQ y el consumidor tolera duplicados.
-8. El código de dominio y aplicación puede probarse sin depender de Laravel.
-9. La arquitectura y sus compromisos se pueden explicar con diagramas y ADRs.
+- Register stock for a product.
+- Add units.
+- Retrieve available and reserved quantities.
+- Reserve and release stock through operations coordinated with orders.
 
-## Restricciones técnicas
+### Asynchronous Integration
 
-- PHP 8.3 es la versión objetivo.
-- MySQL es la base de datos transaccional existente.
-- RabbitMQ es el broker asíncrono existente.
-- Symfony Messenger es la integración de mensajería disponible en el repositorio.
-- La versión de Laravel debe decidirse tras comprobar compatibilidad real. No actualizar automáticamente a Laravel 13.
+- Record events that must be published to the Outbox within the business transaction.
+- Publish them to RabbitMQ after the commit.
+- Process them through idempotent consumers.
+- Prepare for a future extension to real-time broadcasting; having a visual interface is not a priority requirement.
+
+## Initial Out of Scope
+
+- Frontend or mobile application.
+- Independently deployable microservices.
+- Full event sourcing.
+- Distributed CQRS or complex projections.
+- Payments, invoicing, shipping, and supplier management.
+- Complex workflow orchestration.
+- Kubernetes and advanced enterprise observability.
+- Exactly-once delivery guarantee.
+
+## Success Criteria
+
+The project is considered demonstrable when:
+
+1. It can be started locally by following the repository README.
+2. Relevant unit and integration tests can be executed.
+3. An order with sufficient stock is confirmed and all its line items are reserved.
+4. An order with insufficient stock does not leave partial reservations or a confirmed order.
+5. Concurrent operations do not allow more units to be reserved than are available.
+6. The business event is persisted in the Outbox within the same transaction.
+7. The publisher delivers messages to RabbitMQ and the consumer tolerates duplicates.
+8. Domain and application code can be tested without depending on Laravel.
+9. The architecture and its trade-offs can be explained using diagrams and ADRs.
+
+## Technical Constraints
+
+- PHP 8.3 is the target version.
+- MySQL is the existing transactional database.
+- RabbitMQ is the existing asynchronous broker.
+- Symfony Messenger is the messaging integration available in the repository.
+- The Laravel version must be decided after checking actual compatibility. Do not automatically upgrade to Laravel 13.
+

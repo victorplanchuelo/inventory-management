@@ -1,29 +1,32 @@
-# ADR 001 — Monolito modular
 
-- Estado: Aceptado como dirección inicial
-- Fecha: 2026-11-05
 
-## Contexto
+# ADR 001 — Modular Monolith
 
-El proyecto debe demostrar límites de dominio y arquitectura hexagonal sin añadir complejidad operativa innecesaria. El repositorio ya es una aplicación Laravel con infraestructura compartida.
+- **Status:** Accepted as the initial direction
+- **Date:** 2026-11-05
 
-## Decisión
+## Context
 
-Mantener un único despliegue Laravel y organizar el código en módulos `Orders` e `Inventory`, con capas Domain y Application. Los adaptadores de infraestructura y entrada HTTP permanecen fuera del dominio.
+The project must demonstrate domain boundaries and hexagonal architecture without introducing unnecessary operational complexity. The repository is already a Laravel application with shared infrastructure.
 
-## Consecuencias
+## Decision
 
-Positivas:
-- Menor coste de despliegue y desarrollo.
-- Transacciones MySQL locales para pedido e inventario.
-- Límites internos testeables.
-- Posibilidad de extraer servicios en el futuro si existe una necesidad real.
+Maintain a single Laravel deployment and organize the code into `Orders` and `Inventory` modules, with Domain and Application layers. Infrastructure and HTTP entry adapters remain outside the domain.
 
-Negativas:
-- Los límites modulares dependen de disciplina y revisión.
-- Los módulos comparten proceso, base de datos y ciclo de despliegue.
+## Consequences
 
-## Alternativas descartadas
+**Positive:**
+- Lower deployment and development costs.
+- Local MySQL transactions for orders and inventory.
+- Testable internal boundaries.
+- The possibility of extracting services in the future if a real need arises.
 
-- Microservicios independientes: añaden coordinación distribuida y complejidad que no aporta valor al alcance inicial.
-- Aplicación Laravel sin límites internos: facilita el acoplamiento entre HTTP, persistencia y reglas de negocio.
+**Negative:**
+- Modular boundaries depend on discipline and code review.
+- Modules share the same process, database, and deployment lifecycle.
+
+## Rejected Alternatives
+
+- **Independent microservices:** They introduce distributed coordination and complexity that provide no value within the initial scope.
+- **Laravel application without internal boundaries:** It makes coupling between HTTP, persistence, and business rules easier.
+

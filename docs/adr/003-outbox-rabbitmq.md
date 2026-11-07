@@ -1,19 +1,22 @@
-# ADR 003 — Outbox transaccional y RabbitMQ
 
-- Estado: Aceptado como dirección inicial
-- Fecha: 2026-11-05
 
-## Contexto
+# ADR 003 — Transactional Outbox and RabbitMQ
 
-Publicar directamente en RabbitMQ durante una transacción MySQL crea una ventana de inconsistencia: la base de datos puede hacer rollback después de publicar, o el commit puede completarse aunque RabbitMQ no esté disponible.
+- **Status:** Accepted as the initial direction
+- **Date:** 2026-11-05
 
-El repositorio ya contempla RabbitMQ y Symfony Messenger, por lo que se deben aprovechar antes de añadir otro broker.
+## Context
 
-## Decisión
+Publishing directly to RabbitMQ during a MySQL transaction creates a window of inconsistency: the database may roll back after publishing, or the commit may complete even though RabbitMQ is unavailable.
 
-Persistir cada mensaje de integración en una tabla Outbox dentro de la misma transacción que el cambio de negocio. Un publisher independiente lee mensajes pendientes y los envía a RabbitMQ usando la integración existente con Symfony Messenger.
+The repository already includes RabbitMQ and Symfony Messenger, so they should be leveraged before introducing another broker.
 
-Contrato mínimo orientativo de Outbox:
+## Decision
+
+Persist each integration message in an Outbox table within the same transaction as the business change. An independent publisher reads pending messages and sends them to RabbitMQ using the existing Symfony Messenger integration.
+
+Suggested minimum Outbox contract:
+
 - `id`
 - `event_name`
 - `payload`
@@ -21,34 +24,36 @@ Contrato mínimo orientativo de Outbox:
 - `published_at` nullable
 - `attempts`
 
-La implementación puede necesitar `available_at`, `locked_at`, `last_error` o una estrategia de lease para coordinar publishers concurrentes. Definirlo tras estudiar el entorno real.
+The implementation may require `available_at`, `locked_at`, `last_error`, or a lease strategy to coordinate concurrent publishers. Define these after studying the actual environment.
 
-## Entrega e idempotencia
+## Delivery and Idempotency
 
-No se promete exactly-once. Puede haber duplicados si el publisher publica correctamente y cae antes de marcar el registro como publicado.
+Exactly-once delivery is not guaranteed. Duplicates may occur if the publisher successfully publishes a message and crashes before marking the record as published.
 
-Cada mensaje debe tener un identificador estable. El consumidor registra o reconoce ese identificador de forma que una entrega repetida no repita el efecto de negocio.
+Each message must have a stable identifier. The consumer records or acknowledges this identifier in such a way that repeated delivery does not repeat the business effect.
 
-Configurar:
-- Reintentos para errores transitorios.
-- Dead-letter queue o mecanismo equivalente para mensajes agotados.
-- Logs con correlation/message ID, sin datos sensibles.
-- Métricas o visibilidad de mensajes pendientes y antiguos.
+Configure:
 
-## Consecuencias
+- Retries for transient errors.
+- A dead-letter queue or equivalent mechanism for exhausted messages.
+- Logs containing correlation/message IDs, without sensitive data.
+- Metrics or visibility into pending and old messages.
 
-Positivas:
-- El cambio de negocio y la intención de publicar se guardan atómicamente.
-- RabbitMQ puede estar temporalmente caído sin perder el evento.
-- Se desacopla el commit de los efectos secundarios.
+## Consequences
 
-Negativas:
-- Hay más componentes y estados operativos.
-- La entrega es eventual.
-- Es necesario gestionar duplicados, reintentos y mensajes atascados.
+**Positive:**
+- The business change and the intent to publish are stored atomically.
+- RabbitMQ may be temporarily unavailable without losing the event.
+- The commit is decoupled from side effects.
 
-## Alternativas descartadas
+**Negative:**
+- There are more components and operational states.
+- Delivery is eventual.
+- Duplicates, retries, and stuck messages must be managed.
 
-- Publicación directa dentro de la transacción: no es atómica entre MySQL y RabbitMQ.
-- Redis como segundo broker: duplica infraestructura sin necesidad.
-- Exactly-once: no se considera una garantía realista extremo a extremo; se adopta entrega al menos una vez con consumidores idempotentes.
+## Rejected Alternatives
+
+- **Direct publishing inside the transaction:** It is not atomic between MySQL and RabbitMQ.
+- **Redis as a second broker:** It duplicates infrastructure without a need.
+- **Exactly-once delivery:** It is not considered a realistic end-to-end guarantee; at-least-once delivery with idempotent consumers is adopted instead.
+

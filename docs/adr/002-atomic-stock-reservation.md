@@ -1,40 +1,43 @@
-# ADR 002 — Reserva atómica de inventario
 
-- Estado: Aceptado como dirección inicial
-- Fecha: 2026-11-05
 
-## Contexto
+# ADR 002 — Atomic Inventory Reservation
 
-Un pedido puede contener varias líneas. Confirmar solo algunas reservas dejaría el sistema en un estado inconsistente. Además, varios pedidos pueden competir por las últimas unidades.
+- **Status:** Accepted as the initial direction
+- **Date:** 2026-11-05
 
-## Decisión
+## Context
 
-La creación/confirmación del pedido reserva todas las líneas dentro de una única transacción MySQL. Las filas de inventario necesarias se bloquean con `SELECT ... FOR UPDATE` y en un orden determinista. Pedido, líneas, reservas y registros Outbox se confirman o revierten juntos.
+An order may contain multiple line items. Confirming only some reservations would leave the system in an inconsistent state. Additionally, multiple orders may compete for the last available units.
 
-La comprobación de disponibilidad es síncrona. RabbitMQ no participa en la decisión de si hay stock.
+## Decision
 
-## Consecuencias
+Order creation/confirmation reserves all line items within a single MySQL transaction. The required inventory rows are locked using `SELECT ... FOR UPDATE` in a deterministic order. The order, line items, reservations, and Outbox records are committed or rolled back together.
 
-Positivas:
-- No hay pedidos parcialmente reservados.
-- MySQL protege la exclusión mutua entre transacciones.
-- La persistencia de negocio y Outbox puede ser atómica.
+Availability checks are synchronous. RabbitMQ does not participate in the decision of whether stock is available.
 
-Negativas:
-- La transacción puede mantener locks durante más tiempo si se amplía indebidamente.
-- Hay que gestionar deadlocks/reintentos y probar concurrencia en MySQL real.
-- No se debe realizar I/O de red a RabbitMQ dentro de la transacción.
+## Consequences
 
-## Requisitos de implementación
+**Positive:**
+- No partially reserved orders.
+- MySQL protects mutual exclusion between transactions.
+- Business data persistence and Outbox persistence can be atomic.
 
-- Ordenar IDs antes de bloquear.
-- Mantener la transacción lo más corta posible.
-- No hacer llamadas externas mientras se mantienen locks.
-- Definir política de retry para deadlocks.
-- Testear rollback cuando una línea no tiene stock.
-- Testear dos transacciones que compiten por las últimas unidades.
+**Negative:**
+- The transaction may hold locks for longer if it is extended improperly.
+- Deadlocks and retries must be handled, and concurrency must be tested against a real MySQL instance.
+- No network I/O to RabbitMQ must be performed inside the transaction.
 
-## Alternativas descartadas
+## Implementation Requirements
 
-- Reservar cada línea en transacciones separadas: permite reservas parciales.
-- Publicar un comando asíncrono a RabbitMQ para reservar: complica la respuesta al cliente y no ofrece atomicidad local entre pedido y stock.
+- Sort IDs before acquiring locks.
+- Keep the transaction as short as possible.
+- Do not make external calls while holding locks.
+- Define a retry policy for deadlocks.
+- Test rollback when a line item has insufficient stock.
+- Test two transactions competing for the last available units.
+
+## Rejected Alternatives
+
+- **Reserving each line item in separate transactions:** This allows partial reservations.
+- **Publishing an asynchronous command to RabbitMQ to reserve stock:** This complicates the response to the client and does not provide local atomicity between the order and stock.
+
