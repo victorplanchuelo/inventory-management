@@ -17,7 +17,7 @@ implemented_by:
     version: "4.1"
     reasoning_effort: "medium"
 
-last_implementation_at: "2026-11-07T18:58:18Z"
+last_implementation_at: "2026-11-07T21:03:24Z"
 has_completed_all_phases: "false"
 ---
 
@@ -133,18 +133,18 @@ The existing numeric internal User identifier remains unchanged. The UUID become
 
 **To-do actions:**
 
-- [ ] Move `InMemorySymfonyCommandBusTest` to `tests/Unit/Shared/Infrastructure/Bus/Command/` and update its namespace.
-- [ ] Move `InMemorySymfonyQueryBusTest` to `tests/Unit/Shared/Infrastructure/Bus/Query/` and update its namespace.
-- [ ] Move `MySqlEloquentEventBusTest` to `tests/Integration/Shared/Infrastructure/Bus/Event/MySql/` and update its namespace.
-- [ ] Move `RabbitMqEventBusTest` and `TestAllWorksOnRabbitMqEventsPublished` to `tests/Integration/Shared/Infrastructure/Bus/Event/RabbitMq/` and update their namespaces.
-- [ ] Update imports affected by the moves while keeping `Tests\Shared\...` support imports unchanged.
-- [ ] Add `unit`, `integration` and `api` suites to `phpunit.xml`.
-- [ ] Extend `MySqlEloquentEventBusTest` to assert that the persisted `domain_events.aggregate_id` is the event UUID and that the consumed event preserves `eventId` and `aggregateId`.
-- [ ] Extend `RabbitMqEventBusTest` to assert that the consumed event preserves the UUID `aggregateId` and the independent `eventId`.
-- [ ] Verify that the Unit, Integration and Api suites are discovered and runnable independently.
-- [ ] Run the complete configured test suite and fix any failures.
-- [ ] Verify the changes in terms of typechecking, linting and tests using the project's verification command (look it up in the AGENTS.md file or the project configuration). Fix issues if any.
-- [ ] STOP. Present the changes to the user for review and suggest commit messages. Do NOT proceed to the next phase until the user explicitly asks.
+- [x] Move `InMemorySymfonyCommandBusTest` to `tests/Unit/Shared/Infrastructure/Bus/Command/` and update its namespace.
+- [x] Move `InMemorySymfonyQueryBusTest` to `tests/Unit/Shared/Infrastructure/Bus/Query/` and update its namespace.
+- [x] Move `MySqlEloquentEventBusTest` to `tests/Integration/Shared/Infrastructure/Bus/Event/MySql/` and update its namespace.
+- [x] Move `RabbitMqEventBusTest` and `TestAllWorksOnRabbitMqEventsPublished` to `tests/Integration/Shared/Infrastructure/Bus/Event/RabbitMq/` and update their namespaces.
+- [x] Update imports affected by the moves while keeping `Tests\Shared\...` support imports unchanged.
+- [x] Add `unit`, `integration` and `api` suites to `phpunit.xml`.
+- [x] Extend `MySqlEloquentEventBusTest` to assert that the persisted `domain_events.aggregate_id` is the event UUID and that the consumed event preserves `eventId` and `aggregateId`.
+- [x] Extend `RabbitMqEventBusTest` to assert that the consumed event preserves the UUID `aggregateId` and the independent `eventId`.
+- [x] Verify that the Unit, Integration and Api suites are discovered and runnable independently.
+- [x] Run the complete configured test suite and fix any failures.
+- [x] Verify the changes in terms of typechecking, linting and tests using the project's verification command (look it up in the AGENTS.md file or the project configuration). Fix issues if any.
+- [x] STOP. Present the changes to the user for review and suggest commit messages. Do NOT proceed to the next phase until the user explicitly asks.
 
 ### Phase 3: Historical compatibility policy and final verification
 
@@ -171,6 +171,6 @@ The existing numeric internal User identifier remains unchanged. The UUID become
 
 ## Next step
 
-Start Phase 2: move the real Shared tests into Unit and Integration suites, keep shared support code in `tests/Shared`, and verify UUID aggregate identifiers through MySQL and RabbitMQ.
+Start Phase 3: document the historical compatibility policy for this project, explicitly state that no historical backfill is required, and close the task with full verification.
 
-UUIDs validated and tests green thanks to [Codely](https://codely.com) AI tooling. 🆔 ✅ < 🐢 💨
+Suites organized and integration paths verified thanks to [Codely](https://codely.com) AI tooling. 🗂️ 🔗 🆔 ✅ < 🐢 💨

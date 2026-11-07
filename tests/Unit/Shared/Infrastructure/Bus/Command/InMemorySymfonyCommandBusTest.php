@@ -2,18 +2,20 @@
 
 declare(strict_types=1);
 
-namespace Tests\Shared\Infrastructure\Bus\Command;
+namespace Tests\Unit\Shared\Infrastructure\Bus\Command;
 
 use Manager\Shared\Domain\Bus\Command\Command;
 use Manager\Shared\Infrastructure\Bus\Command\CommandNotRegisteredError;
 use Manager\Shared\Infrastructure\Bus\Command\InMemorySymfonyCommandBus;
-use Tests\Shared\Infrastructure\PhpUnit\UnitTestCase;
 use Mockery\MockInterface;
+use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
+use Tests\Shared\Infrastructure\Bus\Command\FakeCommand;
+use Tests\Shared\Infrastructure\PhpUnit\UnitTestCase;
 
 final class InMemorySymfonyCommandBusTest extends UnitTestCase
 {
-	private InMemorySymfonyCommandBus|null $commandBus;
+	private InMemorySymfonyCommandBus | null $commandBus;
 
 	protected function setUp(): void
 	{
@@ -22,7 +24,7 @@ final class InMemorySymfonyCommandBusTest extends UnitTestCase
 		$this->commandBus = new InMemorySymfonyCommandBus([$this->commandHandler()]);
 	}
 
-	/** @test */
+	#[Test]
 	public function it_should_be_able_to_handle_a_command(): void
 	{
 		$this->expectException(RuntimeException::class);
@@ -30,7 +32,7 @@ final class InMemorySymfonyCommandBusTest extends UnitTestCase
 		$this->commandBus->dispatch(new FakeCommand());
 	}
 
-	/** @test */
+	#[Test]
 	public function it_should_raise_an_exception_dispatching_a_non_registered_command(): void
 	{
 		$this->expectException(CommandNotRegisteredError::class);
@@ -48,7 +50,7 @@ final class InMemorySymfonyCommandBusTest extends UnitTestCase
 		};
 	}
 
-	private function command(): Command|MockInterface
+	private function command(): Command | MockInterface
 	{
 		return $this->mock(Command::class);
 	}
