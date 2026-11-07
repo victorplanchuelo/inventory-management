@@ -78,11 +78,11 @@ docs/
 │   └── 005-cross-context-projections.md
 ├── tasks/
 │   ├── README.md
-│   ├── 01-inventory-foundation.md
-│   ├── 02-shared-domain-event-compatibility-and-test-structure.md
-│   ├── 03-transactional-outbox-and-integration-infrastructure.md
-│   ├── 04-inbox-idempotent-consumers-and-event-ordering.md
-│   └── 05-orders-inventory-availability-projection.md
+│   ├── 001-inventory-foundation.md
+│   ├── 002-shared-domain-event-compatibility-and-test-structure.md
+│   ├── 003-transactional-outbox-and-integration-infrastructure.md
+│   ├── 004-inbox-idempotent-consumers-and-event-ordering.md
+│   └── 005-orders-inventory-availability-projection.md
 └── ai/
     ├── working-agreements.md
     └── implementation-log.md
