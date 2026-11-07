@@ -23,27 +23,26 @@ final class User extends AggregateRoot
 
 	public static function create(string $uuid, ?int $id, string $name, string $email, string $password): self
 	{
-        return new self(
-            new UserId($id ?? 0),
-            new UserUuid($uuid),
-            new UserName($name),
-            new UserEmail($email),
-            new UserPassword($password)
-        );
+		return new self(
+			new UserId($id ?? 0),
+			new UserUuid($uuid),
+			new UserName($name),
+			new UserEmail($email),
+			new UserPassword($password)
+		);
 	}
 
-    public function pushDomainEvent(): void
-    {
-        $this->record(
-            new UserCreatedDomainEvent(
-                $this->id->value(),
-                $this->uuid->value(),
-                $this->name->value(),
-                $this->email->value(),
-                $this->password->value()
-            )
-        );
-    }
+	public function pushDomainEvent(): void
+	{
+		$this->record(
+			new UserCreatedDomainEvent(
+				$this->uuid->value(),
+				$this->name->value(),
+				$this->email->value(),
+				$this->password->value()
+			)
+		);
+	}
 
 	public static function fromPrimitives(array $primitives): self
 	{

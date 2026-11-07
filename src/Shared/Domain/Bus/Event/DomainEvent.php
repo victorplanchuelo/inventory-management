@@ -10,17 +10,21 @@ use Manager\Shared\Domain\ValueObject\SimpleUuid;
 
 abstract class DomainEvent
 {
+	private readonly string $aggregateId;
 	private readonly string $eventId;
 	private readonly string $occurredOn;
 
-	public function __construct(private readonly int $aggregateId, string $eventId = null, string $occurredOn = null)
+	public function __construct(string $aggregateId, ?string $eventId = null, ?string $occurredOn = null)
 	{
-		$this->eventId = $eventId ?: SimpleUuid::random()->value();
+		$this->aggregateId = (new SimpleUuid($aggregateId))->value();
+		$this->eventId = $eventId !== null
+			? (new SimpleUuid($eventId))->value()
+			: SimpleUuid::random()->value();
 		$this->occurredOn = $occurredOn ?: Utils::dateToString(new DateTimeImmutable());
 	}
 
 	abstract public static function fromPrimitives(
-		int $aggregateId,
+		string $aggregateId,
 		array $body,
 		string $eventId,
 		string $occurredOn
@@ -30,7 +34,7 @@ abstract class DomainEvent
 
 	abstract public function toPrimitives(): array;
 
-	final public function aggregateId(): int
+	final public function aggregateId(): string
 	{
 		return $this->aggregateId;
 	}

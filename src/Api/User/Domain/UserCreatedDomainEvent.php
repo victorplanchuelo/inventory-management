@@ -4,20 +4,20 @@ declare(strict_types=1);
 
 namespace Manager\Api\User\Domain;
 
+use InvalidArgumentException;
 use Manager\Shared\Domain\Bus\Event\DomainEvent;
 
 final class UserCreatedDomainEvent extends DomainEvent
 {
 	public function __construct(
-		int $id,
 		private readonly string $uuid,
 		private readonly string $name,
 		private readonly string $email,
 		private readonly string $password,
-		string $eventId = null,
-		string $occurredOn = null
+		?string $eventId = null,
+		?string $occurredOn = null
 	) {
-		parent::__construct($id, $eventId, $occurredOn);
+		parent::__construct($uuid, $eventId, $occurredOn);
 	}
 
 	public static function eventName(): string
@@ -26,12 +26,16 @@ final class UserCreatedDomainEvent extends DomainEvent
 	}
 
 	public static function fromPrimitives(
-		int $aggregateId,
+		string $aggregateId,
 		array $body,
 		string $eventId,
 		string $occurredOn
 	): DomainEvent {
-		return new self($aggregateId, $body['uuid'], $body['name'], $body['email'], $body['password'], $eventId, $occurredOn);
+		if (!isset($body['uuid']) || !is_string($body['uuid']) || $body['uuid'] !== $aggregateId) {
+			throw new InvalidArgumentException('The aggregate ID must match the event UUID.');
+		}
+
+		return new self($aggregateId, $body['name'], $body['email'], $body['password'], $eventId, $occurredOn);
 	}
 
 	public function toPrimitives(): array
