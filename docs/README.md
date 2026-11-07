@@ -1,6 +1,8 @@
 # StockFlow Documentation
 
-This directory contains the product, architecture, architectural decisions and implementation guidance for StockFlow.
+This directory contains the product definition, architecture, architectural decisions and implementation specifications for StockFlow.
+
+The documentation is the reference for understanding the project scope, architectural constraints and planned implementation work.
 
 ## Project
 
@@ -30,9 +32,23 @@ Architectural Decision Records document important decisions, their context and c
 
 ## Tasks
 
-Implementation specifications derived from the approved requirements, acceptance criteria and architectural decisions.
+Implementation specifications derived from the requirements, acceptance criteria and architectural decisions.
 
-Task documents define scope, responsibilities, dependencies, expected behavior and verification criteria before implementation begins.
+Start with `tasks/README.md` for the task index, dependencies and implementation workflow.
+
+### Task specifications
+
+| Task | Document | Purpose |
+|---|---|---|
+| 01 | `tasks/001-inventory-foundation.md` | Inventory domain and application foundation: StockItem, quantities and reservations. |
+| 02 | `tasks/002-shared-domain-event-compatibility-and-test-structure.md` | UUID aggregate identifiers, domain-event compatibility and PHPUnit test structure. |
+| 03 | `tasks/003-transactional-outbox-and-integration-infrastructure.md` | Atomic Outbox persistence and reliable RabbitMQ publication. |
+| 04 | `tasks/004-inbox-idempotent-consumers-and-event-ordering.md` | Idempotent event consumption, Inbox persistence and aggregate-version handling. |
+| 05 | `tasks/005-orders-inventory-availability-projection.md` | Orders-owned Inventory availability projection and advisory API query. |
+
+Task documents define scope, responsibilities, dependencies, expected behaviour and verification criteria before implementation begins.
+
+A task marked `Proposed` is a specification awaiting review and approval. It does not mean that the implementation exists or has been approved.
 
 ## AI and Development Workflow
 
@@ -61,6 +77,12 @@ docs/
 │   ├── 004-integration-events-and-cross-context-communication.md
 │   └── 005-cross-context-projections.md
 ├── tasks/
+│   ├── README.md
+│   ├── 01-inventory-foundation.md
+│   ├── 02-shared-domain-event-compatibility-and-test-structure.md
+│   ├── 03-transactional-outbox-and-integration-infrastructure.md
+│   ├── 04-inbox-idempotent-consumers-and-event-ordering.md
+│   └── 05-orders-inventory-availability-projection.md
 └── ai/
     ├── working-agreements.md
     └── implementation-log.md
@@ -70,9 +92,10 @@ docs/
 
 - Keep documentation concise, actionable and consistent with the actual implementation.
 - Document architectural decisions in ADRs rather than duplicating them across documents.
-- Keep requirements, acceptance criteria and task specifications aligned.
+- Keep requirements, acceptance criteria, ADRs and task specifications aligned.
 - Update documentation when an approved architectural decision or requirement changes.
-- Avoid documenting implementation details that are obvious from the code.
+- Distinguish proposed decisions from accepted decisions and implemented behaviour.
+- Do not document proposed implementation details as if they were already implemented.
+- Avoid unrelated refactoring or scope expansion when updating existing documents.
 - Keep this index synchronized with the actual documentation structure.
-- Create new documents when a real convention, decision, requirement or implementation task needs to be documented.
-- Distinguish proposed decisions from accepted decisions and implemented behavior.
+- Create new documents only when a real convention, decision, requirement or implementation task needs to be documented.
