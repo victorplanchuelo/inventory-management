@@ -17,8 +17,8 @@ implemented_by:
     version: "4.1"
     reasoning_effort: "medium"
 
-last_implementation_at: "2026-11-07T21:03:24Z"
-has_completed_all_phases: "false"
+last_implementation_at: "2026-11-07T21:59:09Z"
+has_completed_all_phases: "true"
 ---
 
 # Shared Domain Event UUID Compatibility and Test Structure
@@ -160,17 +160,17 @@ The existing numeric internal User identifier remains unchanged. The UUID become
 
 **To-do actions:**
 
-- [ ] Confirm that deserialization explicitly rejects invalid aggregate identifiers and does not convert them.
-- [ ] Add a regression test proving that a legacy numeric aggregate identifier is rejected explicitly and not converted.
-- [ ] Document the historical compatibility policy in the implementation log: this project has no historical events to preserve, and unsupported identifiers fail explicitly.
-- [ ] Record the task implementation in `docs/ai/implementation-log.md`.
-- [ ] Run the complete PHPUnit suite, including Unit, Integration and Api tests.
-- [ ] Run ECS and PHPStan and fix any issues introduced by this task without adding baseline entries.
-- [ ] Verify the changes in terms of typechecking, linting and tests using the project's verification command (look it up in the AGENTS.md file or the project configuration). Fix issues if any.
-- [ ] STOP. Present the changes to the user for review and suggest commit messages. Do NOT proceed to any further work until the user explicitly asks.
+- [x] Confirm that deserialization explicitly rejects invalid aggregate identifiers and does not convert them.
+- [x] Add a regression test proving that a legacy numeric aggregate identifier is rejected explicitly and not converted.
+- [x] Document the historical compatibility policy in the implementation log: this project has no historical events to preserve, and unsupported identifiers fail explicitly.
+- [x] Record the task implementation in `docs/ai/implementation-log.md`.
+- [x] Run the complete PHPUnit suite, including Unit, Integration and Api tests.
+- [x] Run ECS and PHPStan and fix any issues introduced by this task without adding baseline entries.
+- [x] Verify the changes in terms of typechecking, linting and tests using the project's verification command (look it up in the AGENTS.md file or the project configuration). Fix issues if any.
+- [x] STOP. Present the changes to the user for review and suggest commit messages. Do NOT proceed to any further work until the user explicitly asks.
 
 ## Next step
 
-Start Phase 3: document the historical compatibility policy for this project, explicitly state that no historical backfill is required, and close the task with full verification.
+All phases are complete. Review the final diff, export the implementation conversation next to this plan, and close Task 02.
 
-Suites organized and integration paths verified thanks to [Codely](https://codely.com) AI tooling. 🗂️ 🔗 🆔 ✅ < 🐢 💨
+Legacy payloads rejected explicitly and the task documented thanks to [Codely](https://codely.com) AI tooling. 🚫 🧾 🗂️ 🔗 🆔 ✅ < 🐢 💨

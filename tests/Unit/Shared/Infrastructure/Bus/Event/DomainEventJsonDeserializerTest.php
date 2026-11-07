@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Shared\Infrastructure\Bus\Event;
 
+use InvalidArgumentException;
+use Manager\Shared\Domain\Utils;
 use Manager\Shared\Infrastructure\Bus\Event\DomainEventJsonDeserializer;
 use Manager\Shared\Infrastructure\Bus\Event\DomainEventJsonSerializer;
 use Manager\Shared\Infrastructure\Bus\Event\DomainEventMapping;
@@ -65,6 +67,40 @@ final class DomainEventJsonDeserializerTest extends TestCase
 		self::assertNotSame($deserializedEvent->aggregateId(), $deserializedEvent->eventId());
 	}
 
+	#[Test] public function it_should_reject_a_legacy_numeric_aggregate_identifier_without_converting_it(): void
+	{
+		$this->expectException(InvalidArgumentException::class);
+		$this->expectExceptionMessage('The domain event aggregate identifier <1> must be a valid UUID.');
+
+		$this->deserializer->deserialize($this->serializedEventWithAggregateId(1));
+	}
+
+	#[Test] public function it_should_reject_a_numeric_string_aggregate_identifier_without_converting_it(): void
+	{
+		$this->expectException(InvalidArgumentException::class);
+		$this->expectExceptionMessage('The domain event aggregate identifier <1> must be a valid UUID.');
+
+		$this->deserializer->deserialize($this->serializedEventWithAggregateId('1'));
+	}
+
+	#[Test]
+	public function it_should_reject_an_invalid_uuid_aggregate_identifier(): void
+	{
+		$this->expectException(InvalidArgumentException::class);
+		$this->expectExceptionMessage('The domain event aggregate identifier <invalid-uuid> must be a valid UUID.');
+
+		$this->deserializer->deserialize($this->serializedEventWithAggregateId('invalid-uuid'));
+	}
+
+	#[Test]
+	public function it_should_reject_a_null_aggregate_identifier(): void
+	{
+		$this->expectException(InvalidArgumentException::class);
+		$this->expectExceptionMessage('The domain event aggregate identifier <null> must be a valid UUID.');
+
+		$this->deserializer->deserialize($this->serializedEventWithAggregateId(null));
+	}
+
 	private function roundTrip(FakeDomainEvent $event): FakeDomainEvent
 	{
 		$deserializedEvent = $this->deserializer->deserialize(DomainEventJsonSerializer::serialize($event));
@@ -72,5 +108,23 @@ final class DomainEventJsonDeserializerTest extends TestCase
 		self::assertInstanceOf(FakeDomainEvent::class, $deserializedEvent);
 
 		return $deserializedEvent;
+	}
+
+	private function serializedEventWithAggregateId(mixed $aggregateId): string
+	{
+		return Utils::jsonEncode(
+			[
+				'data' => [
+					'id' => UuidMother::create(),
+					'type' => FakeDomainEvent::eventName(),
+					'occurred_on' => '2026-11-07T18:44:27+00:00',
+					'attributes' => [
+						'id' => $aggregateId,
+						'name' => 'StockFlow',
+					],
+				],
+				'meta' => [],
+			]
+		);
 	}
 }
