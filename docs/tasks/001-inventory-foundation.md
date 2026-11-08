@@ -356,7 +356,58 @@ Use the existing PHPUnit configuration and test organization established by Task
 
 No Outbox, Inbox, integration-event transport, persistence adapter or Orders implementation is a prerequisite for this task.
 
-## 11. Acceptance Criteria
+## 11. Research Findings
+
+The following findings were verified by inspecting the current `feature/stockflow-foundation` branch. No repository files were modified during Research.
+
+### Existing Inventory Context
+
+- No `src/Inventory` bounded context currently exists.
+- Inventory Domain and Application classes must be introduced as a new bounded context.
+- The existing `src/Api/User` context is a historical reference, not an implementation template. Its framework coupling and other documented limitations must not be reproduced.
+
+### Shared UUID Abstractions
+
+- `Manager\Shared\Domain\ValueObject\Uuid` is an abstract UUID Value Object.
+- Its constructor is final and validates UUID values.
+- `SimpleUuid` is final and must not be extended.
+- Existing specific identifiers, such as `UserUuid`, extend `Uuid` directly.
+- Inventory identifiers should follow that pattern.
+- `Uuid::random()` declares a `self` return type, which resolves to `Uuid`. Do not assume that calling this inherited method provides a statically typed `StockItemId`, `ProductId`, `ReservationId` or `OrderId`. Use an explicit typed-ID factory or construct the specific identifier from a generated UUID value without modifying Shared as part of this task.
+
+### Quantity and Aggregate Support
+
+- `IntValueObject` stores an integer but does not enforce numeric ranges.
+- `Quantity` must therefore implement its own non-negative validation before delegating to the parent constructor.
+- `AggregateRoot` already provides `record()` and `pullDomainEvents()` for internal domain-event management.
+- No new generic aggregate or Value Object abstraction is required for this task.
+
+### Domain Events and Exceptions
+
+- The existing `DomainEvent` contract accepts UUID aggregate identifiers as strings.
+- It validates aggregate and event identifiers independently.
+- Concrete events must implement `eventName()`, `fromPrimitives()` and `toPrimitives()`.
+- Inventory events must use the `StockItemId` value as their aggregate identifier.
+- `Manager\Shared\Domain\DomainError` provides the existing base class for domain errors. Inventory-specific exceptions should extend it rather than introduce another shared exception abstraction.
+- Domain events remain internal to Inventory. This task does not implement external publication or an Outbox.
+
+### Testing and Runtime
+
+- Composer declares PHP `^8.3`, Laravel `^11` and PHPUnit `^11`.
+- PHPUnit defines Unit, Integration and Api suites.
+- Unit tests for Inventory belong under `tests/Unit/Inventory/`, mirroring the source structure.
+- Existing Shared unit tests use `PHPUnit\Framework\TestCase` and PHPUnit's `#[Test]` attribute.
+- Inventory Domain and Application unit tests must not require Laravel, MySQL, RabbitMQ or Symfony Messenger.
+
+### Design Points to Settle During Planning
+
+- Define how each typed Inventory identifier is generated without changing the Shared UUID contract.
+- Confirm the namespace and directory naming convention for Inventory Value Objects.
+- Define the exact application input/output contracts and repository method signatures.
+- Decide explicitly which domain events are required in this foundation task, without introducing integration-event publication.
+- Keep persistence, database transactions, locking and cross-context coordination outside this task's implementation scope.
+
+## 12. Acceptance Criteria
 
 - [ ] The Inventory bounded context has a domain model independent of Laravel and infrastructure.
 - [ ] `StockItem` is the aggregate root for one `ProductId`.
@@ -380,7 +431,7 @@ No Outbox, Inbox, integration-event transport, persistence adapter or Orders imp
 - [ ] No warehouse or location management is introduced.
 - [ ] No unrelated Shared or User refactoring is introduced.
 
-## 12. Future Considerations
+## 13. Future Considerations
 
 The following capabilities are intentionally excluded:
 
