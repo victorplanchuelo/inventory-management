@@ -9,6 +9,16 @@ created_by:
     name: "DeepSeek V4.1 Flash Free"
     version: "4.1"
     reasoning_effort: "medium"
+
+implemented_by:
+  tool: "OpenCode"
+  model:
+    name: "DeepSeek V4.1 Flash Free"
+    version: "4.1"
+    reasoning_effort: "medium"
+
+last_implementation_at: "2026-11-08T18:01:40Z"
+has_completed_all_phases: "false"
 ---
 
 # Inventory Domain and Application Foundation
@@ -86,9 +96,14 @@ The project uses the `Manager\` PSR-4 mapping to `src/`. Inventory is a new boun
   - `eventName(): "inventory.stock_item.registered"`
   - `__construct(StockItemId $stockItemId, string $productId, int $initialQuantity, ?string $eventId = null, ?string $occurredOn = null)`
   - The constructor passes `$stockItemId->value()` to the base `DomainEvent`, so `aggregateId()` always equals `stockItemId->value()`.
-  - The constructor stores the `StockItemId` in a readonly property so `toPrimitives()` can serialize it.
+  - The constructor validates `$productId` through `ProductId`, throwing `InvalidArgumentException` for a non-UUID value.
+  - The constructor validates `$initialQuantity` through `Quantity` and requires it to be positive:
+    - A negative value throws `InvalidQuantityException` while building the `Quantity`.
+    - Zero throws `QuantityMustBePositiveException`.
+  - The constructor stores the `StockItemId`, `ProductId` and `Quantity` in readonly properties so `toPrimitives()` can serialize their primitive values.
   - `fromPrimitives(string $aggregateId, array $body, string $eventId, string $occurredOn): self`
-  - `fromPrimitives()` validates the payload and builds the `StockItemId` from `aggregateId`.
+  - `fromPrimitives()` validates payload presence and basic types, then delegates constructor validation to `ProductId` and `Quantity`, so the invalid product and quantity rules also apply when reconstructing.
+  - `fromPrimitives()` builds the `StockItemId` from `aggregateId`.
   - `toPrimitives(): array` with `stockItemId`, `productId` and `initialQuantity`.
   - `fromPrimitives()` throws `InvalidArgumentException` when `body['stockItemId']` does not match `aggregateId`.
 
@@ -139,6 +154,12 @@ All Inventory exceptions extend `Manager\Shared\Domain\DomainError`. Because `Do
   - Preserves the aggregate identifier.
   - Guarantees that the constructor derives `aggregateId()` from `StockItemId`.
   - Rejects a `stockItemId` that does not match `aggregateId` in `fromPrimitives()`.
+  - Rejects an invalid product UUID directly in the constructor with `InvalidArgumentException`.
+  - Rejects zero `initialQuantity` directly in the constructor with `QuantityMustBePositiveException`.
+  - Rejects a negative `initialQuantity` directly in the constructor with `InvalidQuantityException`.
+  - Rejects an invalid product UUID when reconstructing from primitives with `InvalidArgumentException`.
+  - Rejects zero `initialQuantity` when reconstructing from primitives with `QuantityMustBePositiveException`.
+  - Rejects a negative `initialQuantity` when reconstructing from primitives with `InvalidQuantityException`.
 - `Tests\Unit\Inventory\Application\RegisterInitialStock\RegisterInitialStockCommandHandlerTest`:
   - Registers stock when the product does not exist.
   - Rejects an already registered `ProductId`.
@@ -154,18 +175,18 @@ All Inventory exceptions extend `Manager\Shared\Domain\DomainError`. Because `Do
 
 **To-do actions:**
 
-- [ ] Create the `src/Inventory/Domain/ValueObject` directory and the four typed UUID identifiers extending the shared `Uuid` abstraction.
-- [ ] Create `Quantity` extending `IntValueObject`, validating non-negative values before delegating to the parent constructor.
-- [ ] Add `InvalidQuantityException`, `QuantityMustBePositiveException` and `StockItemAlreadyExistsException` extending `DomainError`, with the explicit constructors described above.
-- [ ] Implement `StockItem::register()`, its accessors, `available()` and `InitialStockRegisteredDomainEvent`. The event constructor must derive the base aggregate identifier from `StockItemId`.
-- [ ] Define the complete `StockItemRepository` port with the four methods listed above.
-- [ ] Implement `RegisterInitialStockCommand` and `RegisterInitialStockCommandHandler` using `StockItemRepository` and `UuidGenerator`.
-- [ ] Add the Inventory Unit test base case and the object mothers listed above.
-- [ ] Add the Quantity, StockItem, domain-event and command-handler tests listed above. Keep negative-quantity coverage in `QuantityTest` and command-input tests; aggregate tests cover zero.
-- [ ] Run `vendor/bin/phpunit --testsuite=Unit` and fix any failures.
-- [ ] Run ECS and PHPStan on the new Inventory paths and fix any issues introduced by this phase without adding baseline entries.
-- [ ] Verify the changes in terms of typechecking, linting and tests using the project's verification command. Fix issues if any.
-- [ ] STOP. Present the changes to the user for review and suggest commit messages. Do NOT proceed to the next phase until the user explicitly asks.
+- [x] Create the `src/Inventory/Domain/ValueObject` directory and the four typed UUID identifiers extending the shared `Uuid` abstraction.
+- [x] Create `Quantity` extending `IntValueObject`, validating non-negative values before delegating to the parent constructor.
+- [x] Add `InvalidQuantityException`, `QuantityMustBePositiveException` and `StockItemAlreadyExistsException` extending `DomainError`, with the explicit constructors described above.
+- [x] Implement `StockItem::register()`, its accessors, `available()` and `InitialStockRegisteredDomainEvent`. The event constructor must derive the base aggregate identifier from `StockItemId`.
+- [x] Define the complete `StockItemRepository` port with the four methods listed above.
+- [x] Implement `RegisterInitialStockCommand` and `RegisterInitialStockCommandHandler` using `StockItemRepository` and `UuidGenerator`.
+- [x] Add the Inventory Unit test base case and the object mothers listed above.
+- [x] Add the Quantity, StockItem, domain-event and command-handler tests listed above. Keep negative-quantity coverage in `QuantityTest` and command-input tests; aggregate tests cover zero.
+- [x] Run `vendor/bin/phpunit --testsuite=Unit` and fix any failures.
+- [x] Run ECS and PHPStan on the new Inventory paths and fix any issues introduced by this phase without adding baseline entries.
+- [x] Verify the changes in terms of typechecking, linting and tests using the project's verification command. Fix issues if any.
+- [x] STOP. Present the changes to the user for review and suggest commit messages. Do NOT proceed to the next phase until the user explicitly asks.
 
 ### Phase 2: Add stock
 
@@ -441,6 +462,6 @@ All Inventory exceptions extend `Manager\Shared\Domain\DomainError`. Because `Do
 
 ## Next step
 
-Start Phase 1: introduce the Inventory identifiers, Quantity and initial stock registration with their unit tests.
+Start Phase 2: add stock with `StockItem::addStock()`, `StockAddedDomainEvent` and the `AddStock` use case.
 
-Inventory foundation ready to grow by 🐢 💨 (Turbotuga™, [Codely](https://codely.com)'s mascot).
+The first inventory seeds are planted 🌱 and ready to grow with 🐢 💨 (Turbotuga™, [Codely](https://codely.com)'s mascot).
