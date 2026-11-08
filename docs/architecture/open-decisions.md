@@ -25,15 +25,19 @@ A decision must not be marked as Decided merely because a preferred option has b
 
 **Context:**
 
-ADR 002 currently describes a transaction boundary that includes Order persistence, Inventory reservations and Outbox records.
+The initial transaction model described in ADR 002 was revised to preserve bounded-context ownership.
 
-This needs to be reconciled with bounded-context ownership:
+The current architecture establishes that:
 
 - Orders owns Order persistence and its business lifecycle.
 - Inventory owns StockItem persistence, reservations and its own Outbox.
+- Inventory reservation is atomic within an Inventory-owned transaction.
+- Orders confirmation and its Outbox records belong to an Orders-owned transaction.
 - Neither context should access or modify the other's internal persistence.
 
-The transaction boundary for coordinating order confirmation and Inventory reservation has not been conclusively established.
+The business requirement remains that an order must never be confirmed unless all required stock has been successfully reserved.
+
+The coordination protocol required to guarantee this rule across the two contexts has not yet been decided.
 
 **Decision required:**
 

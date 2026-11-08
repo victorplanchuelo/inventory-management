@@ -8,7 +8,7 @@ Use AI assistants to accelerate research, planning, implementation, and review w
 
 The person responsible for the repository must be able to explain, modify, and defend every change.
 
-## Mandatory Workflow: Research → Plan → Implement
+## Mandatory Workflow: Research → Documentation → Plan → Explicit Approval → Implementation → Verify → Review
 
 ### Research
 

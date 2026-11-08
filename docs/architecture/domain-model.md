@@ -210,31 +210,25 @@ The final event payloads and publication requirements must be specified before i
 
 Order confirmation requires coordination between the Orders and Inventory contexts.
 
-The confirmation use case is responsible for coordinating the operation.
+The confirmation use case is responsible for coordinating the operation through the application boundaries of both contexts.
 
-The expected consistency boundary is one MySQL transaction covering:
+The following consistency rules apply:
 
-1. Loading and validating the order.
-2. Reserving stock for all required order lines.
-3. Persisting reservation records and stock changes.
-4. Confirming the order.
-5. Recording the required Outbox messages.
-
-If any reservation fails, the transaction must roll back all changes.
-
-The reservation operation must use Inventory's authoritative state and the deterministic locking strategy defined in ADR 002.
-
-The following rules apply:
-
+- Inventory owns stock reservation and its persistence transaction.
+- Orders owns order confirmation and its persistence transaction.
+- Inventory must reserve all requested stock for an order atomically within its own transaction.
+- An order must never reach the confirmed state unless Inventory has successfully reserved all required stock.
 - Orders must not access Inventory tables directly.
 - Inventory must not depend on the Orders aggregate.
 - `Order` must not reference `StockItem` as an internal entity.
-- Coordination belongs to the Application use case and its required ports.
 - Inventory availability projections must never be used as the authority for reservation decisions.
+- Each context must persist its own Outbox records atomically with its local business changes.
 
-Each context retains ownership of its domain model and repository contracts. Application-level coordination must not bypass those boundaries.
+A single transaction spanning both contexts must not be assumed.
 
-The exact transaction abstraction and cross-context application ports must be defined in the implementation plan.
+The coordination protocol must define how failures between the Inventory reservation and Orders persistence operations are handled, including retries, idempotency, compensation and recovery.
+
+This cross-context coordination remains an open architectural decision tracked by OD-001. It must be resolved before implementing order confirmation.
 
 ## 5. Cross-Context Projections
 
@@ -394,7 +388,9 @@ The following consistency rules apply:
 
 - Aggregate invariants must be enforced by the owning context.
 - Stock reservation must use authoritative Inventory state.
-- Order confirmation and all stock reservations must be atomic.
+- Inventory must reserve all stock required by an order atomically within its own transaction.
+- An order must not be confirmed unless all required stock has been successfully reserved.
+- Cross-context coordination must follow the explicitly approved protocol defined for OD-001.
 - Outbox messages must be persisted in the same transaction as the business change they represent.
 - Inbox records and local projection updates must be persisted atomically.
 - Duplicate messages must not repeat local effects.

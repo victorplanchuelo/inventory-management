@@ -14,17 +14,19 @@ Orders must not depend on Catalog being available or implemented. Until Catalog 
 
 ### FR-02 — Atomic Order Confirmation
 
-An order can only be confirmed if all its line items can be reserved.
+An order can only be confirmed after Inventory has successfully reserved all stock required by its line items.
 
-The entire confirmation operation must be atomic: if any line item cannot be reserved, no partial reservation or confirmed order must remain.
+Inventory must process all stock reservations requested for an order atomically within its own transaction. Either all requested reservations are committed or none are.
 
-Stock availability must be validated against Inventory's authoritative state, not against an eventually consistent projection.
+Stock availability must be validated against Inventory's authoritative state through the Inventory application boundary, not against an eventually consistent projection.
 
-Order persistence, line items, stock reservations and the required Outbox records must be committed or rolled back together within the MySQL transaction defined by ADR 002.
+Order confirmation must never result in a confirmed order without the corresponding successful stock reservation.
 
-The implementation must acquire the required inventory row locks in a deterministic order and keep the transaction as short as possible.
+Orders and Inventory retain ownership of their respective persistence structures and transactions. The implementation must not assume a shared transaction across bounded contexts.
 
-RabbitMQ must not participate in the synchronous decision of whether stock is available. No network I/O to RabbitMQ may occur while the transaction holds inventory locks.
+The coordination protocol must explicitly address failures between the Inventory reservation and the Orders persistence operations, including retries, idempotency, compensation and recovery. This protocol is tracked by OD-001 and must be decided before implementing order confirmation.
+
+RabbitMQ must not participate in the synchronous decision of whether stock is available. No network I/O to RabbitMQ may occur while an Inventory transaction holds database locks.
 
 Whether order creation and confirmation are performed in one use case or separate use cases remains a lifecycle decision to be resolved in the Orders task specification.
 
@@ -161,9 +163,15 @@ Catalog is desirable but is not a prerequisite for the initial Inventory and Ord
 
 ### NFR-01 — Consistency
 
-Order persistence, stock reservations and required Outbox records must maintain transactional consistency in MySQL.
+Each bounded context must maintain transactional consistency for its own business changes and corresponding Outbox records.
 
-Inbox records and local projection updates must also maintain transactional consistency.
+Inventory stock changes, reservations and Inventory Outbox records must be committed or rolled back together within an Inventory-owned transaction.
+
+Orders persistence changes and Orders Outbox records must be committed or rolled back together within an Orders-owned transaction.
+
+Inbox records and local projection updates must also maintain transactional consistency within their owning context.
+
+Cross-context consistency must be guaranteed through an explicitly defined coordination protocol. It must not rely on an implicit shared transaction.
 
 ### NFR-02 — Concurrency
 
