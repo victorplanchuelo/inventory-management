@@ -8,16 +8,16 @@
 
 Establish the Inventory bounded context's domain model and application contracts.
 
-This task focuses on defining stock management and reservation rules independently of Laravel, Eloquent, MySQL, RabbitMQ, Symfony Messenger, and HTTP.
+This task implements the business rules for stock management and reservations independently of Laravel, Eloquent, MySQL, RabbitMQ, Symfony Messenger and HTTP.
 
-The result must provide a domain foundation that can later support persistence, transactional stock reservations, and coordination with the Orders bounded context.
+The result must provide a domain and application foundation that can later be used by persistence adapters and by other bounded contexts through explicit application boundaries.
 
 ## 2. Scope
 
 ### In scope
 
 - Define the `StockItem` aggregate root.
-- Define Inventory identifiers and value objects.
+- Define Inventory-specific identifiers and Value Objects.
 - Define stock quantity and availability rules.
 - Define `StockReservation` as an entity owned by `StockItem`.
 - Define domain operations for:
@@ -25,40 +25,44 @@ The result must provide a domain foundation that can later support persistence, 
   - Adding stock.
   - Reserving stock.
   - Releasing a reservation.
-- Define the Inventory repository port.
-- Define application contracts and use cases for the operations above.
-- Define domain exceptions and relevant domain events, subject to the shared domain-event contract being compatible with UUID aggregate identifiers.
-- Add unit tests for domain rules and application behaviour.
+- Define the `StockItemRepository` domain port.
+- Define application use cases for the operations above.
+- Define relevant domain exceptions.
+- Record relevant domain events using the existing shared domain-event contract where appropriate.
+- Add unit tests for domain rules and application behavior.
 
 ### Out of scope
 
 - Eloquent models and database persistence.
 - Database migrations.
-- HTTP controllers, routes, and API resources.
-- RabbitMQ publication and consumption.
+- HTTP controllers, routes and API resources.
+- RabbitMQ publication or consumption.
 - Transactional Outbox and Inbox implementation.
+- Integration-event contracts and transport.
 - Cross-context projections.
 - Orders implementation and order confirmation.
-- Warehouse, store, or physical location management.
-- Changes to the existing User bounded context, except where a separately approved shared-infrastructure task requires compatibility work.
+- Coordination of transactions across bounded contexts.
+- Warehouse, store or physical location management.
+- Changes to the existing User bounded context or shared infrastructure.
+- Changes to the existing shared domain-event contract, which were addressed in Task 002.
 
 ## 3. Domain Model
 
-### 3.1 StockItem aggregate root
+### 3.1. StockItem aggregate root
 
 `StockItem` is the aggregate root responsible for the stock of one product.
 
-Initially, the Inventory context will maintain exactly one `StockItem` per `ProductId`.
+Initially, Inventory maintains exactly one `StockItem` per `ProductId`.
 
-The aggregate will contain:
+The aggregate contains:
 
 - `StockItemId`: UUID identifying the StockItem aggregate.
 - `ProductId`: UUID identifying the product in the wider system.
-- `onHand`: Total physical quantity currently held.
-- `reserved`: Quantity currently reserved for orders.
-- Its collection of stock reservations.
+- `onHand`: total physical quantity currently held.
+- `reserved`: quantity currently committed to active reservations.
+- Its collection of `StockReservation` entities.
 
-The following invariant must always hold:
+The aggregate must always preserve this invariant:
 
 `0 <= reserved <= onHand`
 
@@ -66,19 +70,38 @@ Available stock is derived:
 
 `available = onHand - reserved`
 
-`available` must not be independently persisted as a counter.
+Available stock must not be maintained as an independently mutable counter.
 
-A unique database constraint on `product_id` must enforce the one-StockItem-per-product rule when persistence is introduced.
+The one-StockItem-per-ProductId rule is a domain-level business rule. A unique database constraint will provide an additional persistence-level safeguard when persistence is implemented.
 
-### 3.2 Identifiers
+### 3.2. Product identity
 
-Use UUIDs for aggregate identifiers and product references.
+Inventory identifies products through `ProductId`.
 
-Inventory must not depend on the Catalog aggregate or access Catalog repositories to validate a ProductId. ProductId is an external identity understood by Inventory, not a reference to another bounded context's domain object.
+`ProductId` is an external reference. Inventory must not depend on the Catalog aggregate, access Catalog repositories or take ownership of product descriptive information.
 
-The initial implementation assumes Catalog will use UUID product identifiers as well. If Catalog is not included in the initial project scope, the system must still define how ProductIds are generated and supplied.
+The initial system uses UUIDs for product references.
 
-### 3.3 StockReservation entity
+If Catalog is not implemented initially, ProductIds must still be generated and supplied through an explicitly defined mechanism outside Inventory. Inventory only validates that the supplied identifier is a valid UUID; it does not validate the existence of a Catalog product.
+
+### 3.3. Identifiers
+
+Use specific identifiers for Inventory concepts:
+
+- `StockItemId`
+- `ProductId`
+- `ReservationId`
+- `OrderId`
+
+These identifiers must preserve type distinction in the domain rather than passing interchangeable primitive strings throughout the model.
+
+Reuse the existing shared UUID abstraction in `Manager\Shared\Domain\ValueObject`. Do not create another generic UUID implementation.
+
+The existing `Uuid` abstraction validates UUID values and provides value access. `SimpleUuid` is a concrete generic UUID implementation and is final; specific Inventory identifiers must use the shared abstraction without attempting to extend `SimpleUuid`.
+
+All aggregate and reference identifiers must remain independent of database-specific identifier types.
+
+### 3.4. StockReservation entity
 
 `StockReservation` is an entity owned by the `StockItem` aggregate. It is not an independent aggregate root.
 
@@ -86,80 +109,133 @@ Each reservation contains:
 
 - `ReservationId`: UUID.
 - `OrderId`: UUID identifying the order requesting the reservation.
-- `Quantity`: Positive integer quantity.
-- `Status`: Active or Released.
+- `Quantity`: reserved quantity.
+- `Status`: `Active` or `Released`.
 
-The aggregate is responsible for ensuring that reservations and stock counters remain consistent.
+The aggregate controls the lifecycle of its reservations and ensures that reservation state remains consistent with its stock counters.
 
-A reservation may be released only once. Releasing an already released reservation must be rejected or handled according to an explicitly documented idempotency policy.
+A reservation can only be released once. Attempting to release an already released reservation must be rejected as an invalid domain operation. Making repeated release requests idempotent is not part of this task.
 
-### 3.4 Quantity rules
+### 3.5. Quantity Value Object
 
-For the initial implementation, stock quantities are discrete positive integers.
+Stock quantities are discrete integers in the initial implementation. Fractional quantities are out of scope.
 
-- Initial stock must be greater than zero.
-- Added stock must be greater than zero.
-- Reservation quantity must be greater than zero.
-- A reservation must not exceed available stock.
-- Releasing a reservation must restore the corresponding available quantity.
-- The aggregate must never allow negative stock or reserved quantities.
+`Quantity` must be a Value Object based on the existing `IntValueObject` abstraction.
 
-Fractional quantities are outside the initial scope.
+The Value Object must reject negative values but allow zero.
+
+Zero is valid for representing:
+
+- No reserved stock.
+- No available stock.
+- A zero quantity resulting from a valid calculation.
+
+Operations that introduce or reserve stock must enforce strictly positive quantities:
+
+- Initial stock registration: greater than zero.
+- Stock addition: greater than zero.
+- Reservation: greater than zero.
+
+The existing `IntValueObject` does not validate numeric ranges by itself. `Quantity` must implement the non-negative validation explicitly.
+
+### 3.6. Aggregate invariants
+
+The aggregate must preserve these invariants after every successful operation:
+
+- `onHand` cannot be negative.
+- `reserved` cannot be negative.
+- `reserved` cannot exceed `onHand`.
+- Available stock cannot be negative.
+- Every active reservation has a strictly positive quantity.
+- The sum of active reservation quantities must equal the aggregate's `reserved` counter.
+- A released reservation no longer contributes to `reserved`.
+- A reservation cannot be released more than once.
+
+The aggregate must not expose mutable internal collections or allow Application and Infrastructure code to change reservation state directly.
 
 ## 4. Domain Operations
 
-The aggregate must expose behaviour rather than allowing application services or infrastructure adapters to modify its internal state directly.
+The aggregate must expose business behavior rather than allowing application services or infrastructure adapters to modify its internal state directly.
 
 ### Register initial stock
 
-Create a StockItem for a ProductId with an initial positive quantity.
+Create a `StockItem` for a `ProductId` with an initial positive quantity.
 
-The operation must reject a duplicate StockItem for the same ProductId. Persistence-level uniqueness will provide an additional concurrency safeguard.
+The operation must reject an invalid initial quantity.
+
+The Application use case must check whether a StockItem already exists for the ProductId before registering it. Persistence-level uniqueness will provide an additional concurrency safeguard in a future task.
 
 ### Add stock
 
-Increase `onHand` by a positive quantity.
+Increase `onHand` by a strictly positive quantity.
 
 Adding stock must not modify existing reservations.
 
 ### Reserve stock
 
-Given an OrderId and a positive quantity:
+Given an `OrderId` and a strictly positive quantity:
 
 1. Calculate available stock.
 2. Reject the operation if the requested quantity exceeds availability.
-3. Create an active StockReservation.
+3. Create an active `StockReservation` with a unique `ReservationId`.
 4. Increase the `reserved` counter.
-5. Preserve the aggregate invariants.
+5. Preserve all aggregate invariants.
+
+The operation must not allow the aggregate to become over-reserved.
 
 ### Release reservation
 
-Given a ReservationId:
+Given a `ReservationId`:
 
-1. Locate the reservation owned by the StockItem.
-2. Verify that it is active.
+1. Locate the reservation owned by the aggregate.
+2. Verify that it exists and is active.
 3. Mark it as released.
 4. Decrease the `reserved` counter by the reservation quantity.
-5. Preserve the aggregate invariants.
+5. Preserve all aggregate invariants.
 
-The operation must not release the same reservation twice.
+The operation must reject a reservation that does not belong to the aggregate or has already been released.
 
-## 5. Consistency and Concurrency
+## 5. Domain Events
 
-The domain aggregate protects its own invariants, but application and infrastructure layers must later ensure those invariants remain valid under concurrent requests.
+The Inventory aggregate may record domain events for relevant business state changes, such as:
 
-When persistence is implemented:
+- Initial stock registration.
+- Stock addition.
+- Stock reservation.
+- Reservation release.
 
-- StockItem updates and reservation records must be committed in the same database transaction.
-- Concurrent reservations for the same StockItem must be serialized or protected using an appropriate database locking strategy.
-- A failed reservation must not leave a partially updated counter or reservation record.
-- The database must enforce uniqueness of `product_id`.
+Event names and payloads must describe facts that have occurred, not commands or future intentions.
 
-The initial domain and application foundation must not introduce database-specific locking or transaction dependencies.
+Use the existing shared `AggregateRoot` and `DomainEvent` abstractions where appropriate.
 
-## 6. Application Layer
+The existing `DomainEvent` contract accepts UUID aggregate identifiers as strings. Inventory events must use the `StockItemId` value as their aggregate identifier.
 
-Define application use cases that coordinate domain operations and repository access.
+Domain events are internal domain facts. They are not integration-event contracts and must not be published to RabbitMQ by this task.
+
+This task does not implement an Outbox or any event transport mechanism.
+
+## 6. Repository Port
+
+Define `StockItemRepository` in the Inventory Domain.
+
+The repository represents the collection and lifecycle of `StockItem` aggregates. Its contract must not expose Eloquent models, query builders, database schemas or other infrastructure-specific details.
+
+The contract must support the operations required by the application use cases:
+
+- Search a StockItem by `StockItemId`.
+- Search a StockItem by `ProductId`.
+- Search the owning StockItem by `ReservationId`.
+- Persist a `StockItem` aggregate.
+
+The reservation lookup must return the owning aggregate, including the reservation entities required to execute the release operation.
+
+A separate `StockReservationRepository` must not be introduced because reservations are not independent aggregate roots.
+
+The exact method names may follow the existing repository naming conventions, but the lookup by `ReservationId` must not require the caller to know the associated `ProductId`.
+
+## 7. Application Layer
+
+Define application use cases that coordinate repository access and domain behavior.
 
 Initial use cases:
 
@@ -168,15 +244,30 @@ Initial use cases:
 - `ReserveStock`
 - `ReleaseStock`
 
-The application layer must depend on repository ports defined within the Inventory context.
+Responsibilities:
 
-It must not depend on Eloquent models, HTTP requests, RabbitMQ, or other bounded contexts' repositories.
+- Validate application input and resolve the required aggregate through repository ports.
+- Invoke domain behavior.
+- Persist the resulting aggregate through the repository.
+- Return an appropriate application result or propagate a defined application/domain error.
 
-The repository contract should support retrieving and persisting StockItem aggregates without exposing infrastructure-specific details.
+The Application layer must depend on the Inventory Domain and the repository contract.
 
-## 7. Proposed Structure
+It must not depend on:
 
-The initial structure should follow the project's PSR-4 mapping (`Manager\\` to `src/`) and bounded-context conventions.
+- Eloquent models.
+- Laravel HTTP requests or responses.
+- Laravel facades.
+- RabbitMQ or Symfony Messenger.
+- Other bounded contexts' repositories or domain models.
+
+Application code must not duplicate business invariants already enforced by the aggregate.
+
+No database transaction abstraction or persistence-specific locking mechanism is required in this task. Those responsibilities will be addressed when Inventory persistence is implemented.
+
+## 8. Proposed Structure
+
+The initial structure should follow the project's PSR-4 mapping (`Manager\` to `src/`) and bounded-context conventions.
 
 ```text
 src/
@@ -185,8 +276,14 @@ src/
     │   ├── StockItem.php
     │   ├── StockReservation.php
     │   ├── StockItemRepository.php
-    │   ├── ValueObjects/
-    │   └── Exceptions/
+    │   ├── ValueObject/
+    │   │   ├── StockItemId.php
+    │   │   ├── ProductId.php
+    │   │   ├── ReservationId.php
+    │   │   ├── OrderId.php
+    │   │   └── Quantity.php
+    │   ├── Event/
+    │   └── Exception/
     └── Application/
         ├── RegisterInitialStock/
         ├── AddStock/
@@ -194,13 +291,13 @@ src/
         └── ReleaseStock/
 ```
 
-Names and internal file organization may be refined during implementation, provided the boundaries and responsibilities remain intact.
+The structure is a proposal. Names and internal organization may be refined during implementation, provided the architectural boundaries and responsibilities remain intact.
 
-## 8. Testing
+Do not create empty directories or speculative abstractions without a concrete implementation need.
 
-Unit tests must mirror the internal structure of `src/`, with a separate top-level directory identifying the test type.
+## 9. Testing
 
-For this task, domain and application tests belong under:
+Domain and Application unit tests belong under:
 
 ```text
 tests/
@@ -210,59 +307,91 @@ tests/
         └── Application/
 ```
 
-Tests must cover at least:
+The test structure must mirror the internal structure of `src/`.
 
-- StockItem creation with valid initial stock.
-- Rejection of invalid initial quantities.
-- Adding stock.
-- Rejection of invalid added quantities.
-- Successful stock reservation.
+### Domain tests
+
+Cover at least:
+
+- Creation of a StockItem with valid initial stock.
+- Rejection of negative and zero initial stock.
+- Rejection of negative Quantity values.
+- Acceptance of zero Quantity where zero is a valid state.
+- Addition of positive stock.
+- Rejection of zero or negative stock additions.
+- Successful reservation.
+- Rejection of zero or negative reservation quantities.
 - Rejection of reservations exceeding available stock.
 - Correct calculation of available stock.
-- Reservation release.
+- Correct updates to reserved quantity.
+- Successful release of an active reservation.
+- Rejection of release for an unknown reservation.
 - Rejection of repeated release.
 - Preservation of aggregate invariants after each operation.
-- Application use-case behaviour using repository test doubles.
+- Consistency between active reservation quantities and the reserved counter.
+- Correct recording of relevant domain events, if implemented.
 
-Domain unit tests must not require Laravel, MySQL, RabbitMQ, or Symfony Messenger.
+### Application tests
 
-The PHPUnit configuration and existing test-suite organization will be reviewed as part of a separate shared testing-infrastructure task.
+Use repository test doubles to verify:
 
-## 9. Dependencies and Related Work
+- Initial stock registration when no StockItem exists.
+- Rejection of duplicate ProductId registration.
+- Stock addition to an existing StockItem.
+- Reservation of an existing StockItem.
+- Rejection when the requested ProductId does not exist in Inventory.
+- Release using ReservationId without requiring ProductId from the caller.
+- Persistence of the aggregate after successful operations.
+- Propagation of relevant domain/application errors.
 
-This task depends on a compatible shared domain-event contract if Inventory domain events are introduced.
+Domain and Application unit tests must not require Laravel, MySQL, RabbitMQ or Symfony Messenger.
 
-The existing `DomainEvent` contract currently uses an integer aggregate identifier. The project has agreed to use UUID aggregate identifiers.
+Use the existing PHPUnit configuration and test organization established by Task 002.
 
-The shared event-contract compatibility work must therefore be handled independently, with its own regression tests, before Inventory relies on that contract.
+## 10. Dependencies and Related Work
 
-This task does not implement the Outbox or integration-event transport. Those responsibilities belong to separate tasks.
+- **Task 002 — Shared Domain Event Compatibility and Test Structure:** completed and verified. The shared `DomainEvent` contract supports UUID aggregate identifiers, and the Unit test structure is available.
+- **ADR 001 — Modular Monolith:** defines the modular monolith and bounded-context organization.
+- **Architectural Reference:** defines Domain, Application and Infrastructure responsibilities.
 
-## 10. Acceptance Criteria
+No Outbox, Inbox, integration-event transport, persistence adapter or Orders implementation is a prerequisite for this task.
+
+## 11. Acceptance Criteria
 
 - [ ] The Inventory bounded context has a domain model independent of Laravel and infrastructure.
-- [ ] StockItem is the aggregate root for one ProductId.
-- [ ] StockItem and ProductId use UUID identifiers.
-- [ ] StockReservation is an entity owned by StockItem.
-- [ ] The aggregate maintains the invariant `0 <= reserved <= onHand`.
+- [ ] `StockItem` is the aggregate root for one `ProductId`.
+- [ ] Exactly one StockItem per ProductId is the initial Inventory rule.
+- [ ] Inventory identifiers use UUIDs and preserve type distinction.
+- [ ] `ProductId` is treated as an external reference.
+- [ ] `StockReservation` is an entity owned by `StockItem`.
+- [ ] `Quantity` rejects negative values and permits zero.
+- [ ] Operations that register, add or reserve stock require a positive quantity.
+- [ ] The aggregate maintains `0 <= reserved <= onHand`.
 - [ ] Available stock is derived from `onHand - reserved`.
-- [ ] Initial stock registration and stock addition reject invalid quantities.
+- [ ] Active reservation quantities remain consistent with the reserved counter.
 - [ ] Stock reservations cannot exceed available stock.
 - [ ] A reservation can only be released once.
-- [ ] Repository ports are defined in the Inventory domain.
-- [ ] Application use cases coordinate operations through domain behaviour and repository ports.
-- [ ] Unit tests cover the relevant domain rules and application behaviour.
-- [ ] No persistence, API, RabbitMQ, Outbox, Inbox, or Orders implementation is introduced by this task.
-- [ ] The implementation does not introduce warehouse or location management.
+- [ ] The Inventory repository port is defined in the Domain.
+- [ ] Reservation lookup returns the owning StockItem aggregate.
+- [ ] Application use cases coordinate operations through domain behavior and repository ports.
+- [ ] Relevant domain events use the shared UUID-compatible event contract, if recorded.
+- [ ] Unit tests cover the relevant domain rules and application behavior.
+- [ ] No persistence, API, RabbitMQ, Outbox, Inbox, projection or Orders implementation is introduced.
+- [ ] No warehouse or location management is introduced.
+- [ ] No unrelated Shared or User refactoring is introduced.
 
-## 11. Future Considerations
+## 12. Future Considerations
 
-The following capabilities are intentionally excluded from the initial scope:
+The following capabilities are intentionally excluded:
 
 - Multiple warehouses or stock locations.
 - Stock transfers between locations.
 - Independent reservation aggregate roots.
 - Fractional stock quantities.
-- Advanced reservation expiration and automatic release policies.
+- Reservation expiration and automatic release policies.
+- Inventory persistence and database concurrency control.
+- Cross-context order confirmation and transaction coordination.
+- Inventory API endpoints.
+- Integration-event publication and consumption.
 
-These capabilities may be considered if future requirements justify them. Their absence must not lead to premature abstractions in the initial implementation.
+These capabilities may be considered in later tasks if requirements justify them. Their absence must not lead to premature abstractions in this task.

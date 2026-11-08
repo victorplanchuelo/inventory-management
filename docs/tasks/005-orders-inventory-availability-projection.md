@@ -8,25 +8,26 @@
 
 Implement an Orders-owned projection of Inventory availability information.
 
-The projection will provide a local, queryable view of stock availability without requiring Orders API queries to access Inventory tables or repositories.
+The projection will provide a local, queryable view of stock information without requiring Orders API queries to access Inventory tables or repositories.
 
 The projection will be maintained asynchronously by consuming Inventory integration events.
 
-It will provide advisory information only. It must never replace the authoritative stock validation and reservation performed by Inventory when an order is confirmed.
+It is an advisory read model. Inventory remains the sole authority for physical stock and reservation decisions.
 
 ## 2. Architectural Principles
 
 The implementation must follow these principles:
 
-- Inventory remains the owner of physical stock and reservations.
+- Inventory owns physical stock, reservations and stock availability calculations.
 - Orders owns its local Inventory availability projection.
-- Orders must not query Inventory database tables directly.
+- Orders must not query Inventory database tables or repositories directly.
 - Projection updates are asynchronous and eventually consistent.
-- The projection is a read model, not an authoritative source of stock.
-- Order confirmation must synchronously reserve stock through Inventory's application boundary.
-- Inventory must enforce stock invariants within its own database transaction.
+- The projection is not an authoritative source for enforcing Inventory invariants.
 - Projection consumers must use the Inbox mechanism for idempotent processing.
-- No cross-context transaction is allowed.
+- Inbox records and projection updates must be committed atomically within Orders persistence.
+- No cross-context database transaction is introduced.
+- Integration event contracts must follow ADR 004.
+- Projection design and API behavior must follow ADR 005.
 
 ## 3. Scope
 
@@ -36,7 +37,7 @@ The implementation must follow these principles:
 - Consume relevant Inventory integration events.
 - Persist projection data within Orders-owned infrastructure.
 - Apply events idempotently through Inbox.
-- Handle aggregate versions where available.
+- Handle aggregate versions where the producer guarantees them.
 - Expose a query API for availability information.
 - Define projection initialization and reconciliation requirements.
 - Add unit, integration and API tests.
@@ -44,7 +45,10 @@ The implementation must follow these principles:
 ### Out of scope
 
 - Inventory aggregate implementation.
-- Inventory stock reservation implementation.
+- Inventory persistence and stock reservation implementation.
+- Orders aggregate and order lifecycle implementation.
+- Order confirmation and Inventory reservation coordination.
+- Decisions about atomicity or recovery across Orders and Inventory business operations.
 - Catalog implementation.
 - Generic projection framework.
 - Event Sourcing.
@@ -63,9 +67,9 @@ Inventory owns:
 - Active reservations.
 - Stock availability calculations.
 - Stock reservation and release operations.
-- Inventory integration events.
+- Inventory integration events describing committed stock changes.
 
-Inventory is the only authority allowed to confirm whether stock can actually be reserved.
+Inventory is the authority for the business facts represented by these events.
 
 ### Orders
 
@@ -77,13 +81,13 @@ Orders owns:
 - Projection query ports.
 - API endpoints exposing the local read model.
 
-Orders must not modify Inventory stock through its projection.
+Orders must not modify Inventory stock through its projection or use projected values to enforce Inventory business invariants.
 
 ## 5. Projection Model
 
-The initial projection represents the latest known stock availability for a product.
+The initial projection represents the latest known stock state for a product.
 
-The proposed model is:
+Proposed model:
 
 **InventoryAvailabilityProjection**
 
@@ -93,19 +97,19 @@ The proposed model is:
 | `stock_item_id` | UUID identifying the Inventory StockItem |
 | `on_hand` | Latest known physical stock |
 | `reserved` | Latest known reserved quantity |
-| `available` | Latest known available quantity |
-| `aggregate_version` | Latest processed Inventory aggregate version |
-| `updated_at` | Last projection update timestamp |
+| `aggregate_version` | Latest processed Inventory aggregate version, when guaranteed |
+| `source_occurred_at` | Time when the source business event occurred |
+| `updated_at` | Time when the local projection was updated |
 
-The initial model assumes one StockItem per ProductId, as agreed for the first version.
+The initial model assumes one StockItem per ProductId.
 
-The projection must preserve the distinction between physical stock, reserved stock and available stock.
-
-The invariant is:
+Available quantity is derived:
 
 `available = on_hand - reserved`
 
-The projection must not calculate availability using order status or assumptions about pending orders.
+It should not be stored independently unless a verified query or performance requirement justifies doing so.
+
+The projection must preserve the distinction between physical stock, reserved stock and available stock.
 
 The values represent the latest successfully processed Inventory information, not necessarily the current authoritative stock.
 
@@ -113,13 +117,13 @@ The values represent the latest successfully processed Inventory information, no
 
 The projection will consume Inventory integration events.
 
-The initial candidate events are:
+Initial candidate events:
 
 - `StockAdded`
 - `StockReserved`
 - `StockReleased`
 
-The final event payloads must be defined according to ADR 004.
+The final event contracts must follow ADR 004 and be defined by Inventory before implementation.
 
 Events must provide enough information to update the projection without accessing Inventory persistence.
 
@@ -131,28 +135,30 @@ At minimum, the consumer needs:
 - `aggregateId`.
 - `aggregateVersion`, when guaranteed by the producer.
 - `productId`.
-- Updated stock quantities or sufficient information to derive the new projection state.
+- Resulting stock quantities, or sufficient information to derive the new projection state reliably.
 
 Prefer publishing the resulting stock quantities rather than requiring consumers to reconstruct business state from assumptions about individual operations.
 
-The exact event payload must be finalized before implementation.
+The exact payloads and version guarantees must be agreed before implementation. The consumer must not assume that a candidate event name or field is already part of an implemented contract.
 
 ## 7. Projection Processing
 
 The Orders consumer must:
 
 1. Receive an Inventory integration event.
-2. Validate its envelope and supported version.
-3. Check whether its `eventId` has already been processed.
-4. Validate aggregate-version behaviour where available.
+2. Validate its envelope and supported contract version.
+3. Check whether its `eventId` has already been processed by this consumer.
+4. Validate aggregate-version behavior where the producer guarantees versioning.
 5. Update the Orders-owned projection.
 6. Record the event in the Orders Inbox.
-7. Commit the projection update and Inbox record in the same database transaction.
+7. Commit the projection update and Inbox record in the same local database transaction.
 8. Acknowledge RabbitMQ only after successful transaction completion.
 
-If processing fails, the transaction must roll back and the message must follow the configured retry policy.
+If processing fails, the transaction must roll back and the message must follow the configured retry and failure-handling policy.
 
 A duplicate event must not repeat the projection update.
+
+The consumer must not call Inventory repositories or access Inventory tables to complete ordinary event processing.
 
 ## 8. Event Ordering
 
@@ -162,55 +168,36 @@ When Inventory guarantees sequential aggregate versions:
 
 - The consumer must identify the latest successfully processed version.
 - Older versions must not overwrite newer projection state.
-- A missing predecessor must follow the agreed event-ordering policy.
+- Missing predecessor behavior must follow the policy defined by Task 04 and ADR 004.
 - The consumer must not invent aggregate versions.
+- Version gaps must be interpreted according to the events subscribed to; a gap is not automatically evidence of message loss.
 
 If aggregate versions are unavailable, the consumer must not claim ordering guarantees that do not exist.
 
-The chosen strategy must be consistent with Task 04 and ADR 004.
+The chosen strategy must be deterministic and covered by tests.
 
 ## 9. API Query
 
 Orders will expose a read endpoint for the local availability projection.
 
-The exact route and response contract must follow the existing API conventions.
+The exact route and response contract must follow existing API conventions.
 
 The response should communicate:
 
 - Product identifier.
 - Latest known physical stock.
 - Latest known reserved quantity.
-- Latest known available quantity.
-- Timestamp of the projection update.
+- Latest known available quantity, derived from the projected values.
+- Source event timestamp.
+- Local projection update timestamp, where useful.
 
-The endpoint must make the advisory nature of the information clear.
+The endpoint must make the advisory and eventually consistent nature of the information clear.
 
 A missing projection must have an explicit response policy. It must not be interpreted as proof that no stock exists.
 
 The endpoint must not query Inventory repositories or tables to fill missing projection data.
 
-## 10. Order Confirmation and Authoritative Stock
-
-The projection must never be used to authorize an order confirmation.
-
-When an order is confirmed:
-
-1. Orders invokes the Inventory application boundary to reserve the required stock.
-2. Inventory loads and locks the authoritative StockItem record.
-3. Inventory validates the current available quantity.
-4. Inventory creates the reservation and updates its stock counters atomically.
-5. The operation commits or rolls back as one Inventory transaction.
-6. Orders proceeds according to the result of the reservation operation.
-
-The authoritative operation must protect against concurrent confirmations.
-
-A projection showing sufficient availability does not guarantee that stock is still available.
-
-If Inventory rejects the reservation, Orders must not confirm the order.
-
-No distributed transaction between Orders and Inventory is introduced by this flow.
-
-## 11. Projection Initialization and Reconciliation
+## 10. Projection Initialization and Reconciliation
 
 The initial projection must have a defined initialization strategy.
 
@@ -220,13 +207,17 @@ Possible approaches include:
 - A dedicated synchronization process.
 - A documented initial data import.
 
+The selected approach must define how the snapshot and incoming events are coordinated so that changes occurring during initialization are not silently missed.
+
 The implementation must not assume that historical Outbox records are permanently available for replay.
 
-Reconciliation must be possible without directly modifying Inventory data from Orders.
+Reconciliation must be possible without modifying Inventory data from Orders.
 
 The initial implementation may provide a controlled synchronization procedure rather than a generic projection rebuild framework.
 
-## 12. Testing Strategy
+The source of truth for reconciliation remains Inventory.
+
+## 11. Testing Strategy
 
 Tests must follow the established project test structure.
 
@@ -235,11 +226,12 @@ Tests must follow the established project test structure.
 Test:
 
 - Projection creation.
-- Projection quantity invariants.
+- Projection quantity validation.
+- Available quantity derivation.
 - Stock quantity updates.
 - Aggregate-version decisions.
 - Stale-event handling.
-- Missing projection behaviour.
+- Missing projection behavior.
 - Projection query results.
 
 ### Integration tests
@@ -248,11 +240,11 @@ Test:
 
 - Inventory events update the Orders projection.
 - Inbox and projection changes commit atomically.
-- Failed processing rolls back projection changes.
+- Failed processing rolls back projection changes and Inbox records.
 - Duplicate events do not apply updates twice.
 - Stale aggregate versions cannot overwrite newer values.
 - Missing predecessors follow the documented policy.
-- RabbitMQ acknowledgement occurs after successful processing.
+- RabbitMQ acknowledgement occurs after successful transaction completion.
 
 ### API tests
 
@@ -260,55 +252,64 @@ Test:
 
 - Availability endpoint returns the local projection.
 - Missing projections follow the documented response policy.
-- Response fields are correct.
+- Response fields and derived availability are correct.
 - API queries do not access Inventory persistence.
-- The response communicates that availability is advisory.
+- The response communicates that availability is advisory and eventually consistent.
 
-### Order confirmation tests
+### Initialization and reconciliation tests
 
-Verify that:
+Test:
 
-- A sufficient projection does not bypass authoritative Inventory validation.
-- Inventory rejects confirmation when authoritative stock is insufficient.
-- Concurrent confirmations cannot reserve more stock than is available.
-- Failed reservation prevents order confirmation.
+- Initial synchronization creates the expected projection state.
+- Events occurring during initialization are not silently lost.
+- Reconciliation updates the local projection without modifying Inventory data.
+- The procedure does not depend on permanent Outbox history.
 
-## 13. Acceptance Criteria
+Order confirmation and authoritative reservation tests belong to a separate task.
+
+## 12. Acceptance Criteria
 
 - [ ] Orders owns the Inventory availability projection.
 - [ ] Inventory remains the authoritative owner of physical stock and reservations.
 - [ ] Projection data is maintained through Inventory integration events.
+- [ ] The event contracts and supported versions are explicit.
 - [ ] Projection updates are idempotent.
-- [ ] Inbox and projection updates are committed atomically.
+- [ ] Inbox and projection updates are committed atomically within Orders.
 - [ ] Stale events cannot overwrite newer projection state where version guarantees exist.
-- [ ] Missing predecessor behaviour is explicitly defined.
+- [ ] Missing predecessor behavior is explicitly defined.
 - [ ] Orders exposes an API query backed by its local projection.
 - [ ] Orders does not query Inventory tables or repositories directly.
 - [ ] Missing projection data is handled explicitly.
-- [ ] The API communicates the advisory nature of availability.
-- [ ] Order confirmation always performs authoritative Inventory reservation.
-- [ ] Inventory protects stock invariants under concurrent reservations.
-- [ ] Projection initialization and reconciliation are documented.
-- [ ] Unit, integration and API tests cover the required behaviour.
+- [ ] Available quantity is derived consistently from projected quantities.
+- [ ] The API communicates the advisory and eventually consistent nature of availability.
+- [ ] Projection initialization and reconciliation are documented and tested.
+- [ ] Unit, integration and API tests cover the required behavior.
+- [ ] No order confirmation or authoritative reservation behavior is implemented in this task.
 - [ ] No generic projection engine or distributed transaction is introduced.
 
-## 14. Dependencies
+## 13. Dependencies
 
 This task depends on:
 
 - Task 02 — Shared Domain Event Compatibility and Test Structure.
 - Task 03 — Transactional Outbox and Integration Infrastructure.
 - Task 04 — Inbox, Idempotent Consumers and Event Ordering.
-- ADR 002 — Atomic Stock Reservation.
+- Task 06 — Inventory Persistence and Stock Reservation (planned).
 - ADR 004 — Integration Events and Cross-Context Communication.
 - ADR 005 — Cross-Context Projections.
 
-The Inventory StockItem foundation must also exist before its integration events can be produced.
+Task 06 is required because Inventory must be able to persist stock changes and publish corresponding integration events.
 
-## 15. Follow-up Work
+Implementation is blocked until the required Inventory event contracts and producer behavior are available.
+
+ADR 002 is not a direct dependency of this projection task. Its order-confirmation transaction decision must be resolved separately before implementing order confirmation.
+
+## 14. Follow-up Work
 
 Future work may introduce:
 
+- Orders domain and application foundation.
+- Atomic order confirmation and Inventory coordination.
 - Catalog product projections.
 - Additional Orders read models.
 - Inventory reconciliation tooling.

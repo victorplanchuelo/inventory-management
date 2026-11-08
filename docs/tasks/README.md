@@ -1,194 +1,100 @@
 # Implementation Tasks
 
-This directory contains implementation specifications for StockFlow.
+This directory contains the implementation specifications for StockFlow.
 
-Each document describes a bounded implementation task derived from the approved requirements, acceptance criteria and architectural decisions.
+Each task describes a bounded piece of work derived from the project requirements, acceptance criteria and architectural decisions. A task specification does not imply that its implementation has started or been approved.
 
-Task specifications are intended to make implementation incremental, reviewable and testable.
+## Existing Task Specifications
 
-## Task Organization
+| Task | Document | Purpose | Status |
+|---|---|---|---|
+| 001 | `001-inventory-foundation.md` | Inventory domain and application foundation. | Proposed |
+| 002 | `002-shared-domain-event-compatibility-and-test-structure.md` | UUID aggregate identifiers, shared domain-event compatibility and test structure. | Verified |
+| 003 | `003-transactional-outbox-and-integration-infrastructure.md` | Transactional Outbox and reliable RabbitMQ publication. | Proposed |
+| 004 | `004-inbox-idempotent-consumers-and-event-ordering.md` | Idempotent message consumption, Inbox and event ordering. | Proposed |
+| 005 | `005-orders-inventory-availability-projection.md` | Orders-owned Inventory availability projection and advisory queries. | Proposed |
 
-Tasks are organized around business capabilities and architectural responsibilities rather than individual classes or files.
+The table describes the documents currently present. It is not a commitment to execute tasks in numerical order. Execution order must respect the actual dependencies and the implementation plan approved for each task.
 
-The initial proposed task sequence is:
+**Current implementation focus:** Task 001 — Inventory Domain and Application Foundation.
 
-1. Inventory domain and application foundation.
-2. Transactional Outbox and integration event infrastructure.
-3. Inventory persistence and stock reservation.
-4. Orders domain and application foundation.
-5. Atomic order confirmation and inventory coordination.
-6. Cross-context integration event consumers.
-7. Cross-context projections and API read models.
-8. Catalog foundation, if included in the approved scope.
+Task 002 has been implemented and verified. Task 001 is the next task to research, plan and implement.
 
-This sequence is provisional. Dependencies discovered during research may require adjustments.
-
-Each task must have its own specification document.
+Future capabilities must not be treated as current implementation scope merely because they appear in requirements, ADRs or proposed task documents.
 
 ## Task Specification Structure
 
-Every task specification should contain the following sections.
+Every task specification should define the following:
 
-### 1. Objective
-
-Describe the behavior or capability to implement and the problem it solves.
-
-### 2. Scope
-
-Define:
-
-- Included behavior.
-- Explicit exclusions.
-- Bounded context ownership.
-- Relevant use cases.
-
-Avoid combining unrelated capabilities in one task.
-
-### 3. Architectural Context
-
-Identify the applicable:
-
-- Requirements.
-- Acceptance criteria.
-- Architecture documents.
-- ADRs.
-- Existing contracts and conventions.
-
-Explain how the task fits into the existing architecture.
-
-### 4. Research Findings
-
-Before planning implementation, document:
-
-- Files and dependencies inspected.
-- Existing behavior and conventions.
-- Reusable components and contracts.
-- Compatibility constraints.
-- Verified facts.
-- Hypotheses, risks and unresolved questions.
-
-Do not present assumptions as verified facts.
-
-### 5. Design and Responsibilities
-
-Describe:
-
-- Domain responsibilities.
-- Application use cases and ports.
-- Infrastructure adapters.
-- API responsibilities, when applicable.
-- Persistence and transaction boundaries.
-- Integration event interactions, when applicable.
-
-Identify which bounded context owns each responsibility.
-
-### 6. Files to Create or Modify
-
-List the expected files and their responsibilities.
-
-Distinguish between:
-
-- New files.
-- Existing files to modify.
-- Existing files to reuse without modification.
-
-The list is a planning proposal and must be validated before implementation.
-
-### 7. Implementation Steps
-
-Break the work into small, ordered and independently reviewable increments.
-
-Each step should have a clear expected outcome.
-
-### 8. Testing Strategy
-
-Define the tests required to demonstrate the behavior.
-
-Include, where relevant:
-
-- Unit tests for domain invariants.
-- Application tests for use cases and orchestration.
-- Integration tests for persistence and messaging adapters.
-- API tests for HTTP behavior.
-- Negative tests for invalid operations.
-- Concurrency and transaction tests.
-- Duplicate delivery and failure recovery tests.
-
-Do not claim that tests have passed until they have actually been executed.
-
-### 9. Acceptance Criteria
-
-List the acceptance criteria that the implementation must satisfy.
-
-Criteria must be observable and verifiable.
-
-### 10. Risks and Open Decisions
-
-Record:
-
-- Technical risks.
-- Compatibility concerns.
-- Unresolved architectural questions.
-- Alternatives that require evaluation.
-- Decisions that require explicit approval.
-
-Do not silently resolve architectural decisions outside the approved scope.
-
-### 11. Out of Scope
-
-Explicitly identify functionality and refactoring that must not be included.
+1. **Objective:** the behavior or capability to implement.
+2. **Scope:** included behavior, exclusions and bounded-context ownership.
+3. **Architectural Context:** relevant requirements, acceptance criteria, architecture documents, ADRs and existing contracts.
+4. **Research Findings:** inspected files, existing behavior, reusable components, verified facts, assumptions and risks.
+5. **Design and Responsibilities:** Domain, Application and Infrastructure responsibilities, including relevant ports and adapters.
+6. **Files to Create or Modify:** proposed files and their responsibilities, subject to validation during planning.
+7. **Implementation Steps:** small, ordered and reviewable increments.
+8. **Testing Strategy:** tests needed to verify behavior and failure cases.
+9. **Acceptance Criteria:** observable and verifiable completion conditions.
+10. **Risks and Open Decisions:** unresolved questions and alternatives requiring evaluation.
+11. **Out of Scope:** functionality and refactoring excluded from the task.
 
 ## Workflow
 
-Every task follows the project workflow:
+Every task follows this workflow:
 
-**Research → Plan → Explicit Approval → Implement → Verify → Review**
+**Research → Documentation → Plan → Explicit Approval → Implement → Verify → Review**
 
 ### Research
 
 - Inspect the relevant repository files and dependencies.
-- Verify existing contracts and conventions.
-- Identify risks and missing information.
+- Verify existing contracts, conventions and compatibility.
+- Separate verified facts from assumptions.
+- Identify risks and unresolved decisions.
 - Do not modify files.
+
+### Documentation
+
+- Update only documentation needed to reflect verified facts or approved decisions.
+- Keep requirements, architecture, ADRs and task specifications consistent.
+- Do not turn future ideas into current implementation requirements.
+- Do not duplicate complete ADR content in task specifications.
 
 ### Plan
 
-- Define the implementation scope.
+- Define the approved scope.
 - Identify files and responsibilities.
 - Describe implementation steps.
 - Define tests and acceptance criteria.
-- Present alternatives and unresolved decisions.
+- Present unresolved decisions and alternatives.
 
-Implementation must not begin before explicit approval.
+Implementation must not begin before the plan has been explicitly approved.
 
 ### Implement
 
 - Implement only the approved scope.
-- Work incrementally.
+- Work in small increments.
 - Add relevant tests.
 - Avoid unrelated refactoring and dependencies.
-- Run applicable quality checks.
+- Do not change global contracts or architecture without approval.
 
 ### Verify and Review
 
-- Report executed commands and actual results.
-- Show the complete diff.
-- Explain relevant design decisions.
+- Report commands actually executed and their results.
+- Review the complete diff.
+- Explain relevant design decisions and trade-offs.
 - Identify remaining risks and technical debt.
-- Ensure the person responsible can explain the implementation.
+- Confirm that the implementation meets the acceptance criteria.
 
-## Status
+## Task Status
 
-Each task specification must identify its current status:
+- **Proposed:** documented but not approved for implementation.
+- **Approved:** scope and implementation plan explicitly approved.
+- **In Progress:** implementation has started within the approved scope.
+- **Implemented:** implementation changes have been completed.
+- **Verified:** required checks and acceptance criteria have been verified.
+- **Blocked:** progress requires an unresolved dependency or decision.
 
-- **Proposed:** Documented but not approved for implementation.
-- **Approved:** Scope and implementation plan explicitly approved.
-- **In Progress:** Implementation has started within the approved scope.
-- **Implemented:** Changes have been completed.
-- **Verified:** Required checks and acceptance criteria have been verified.
-- **Blocked:** Progress requires an unresolved dependency or decision.
-
-A task must not be marked as approved merely because its specification has been written.
+A task must not be marked as approved merely because its specification exists. A task must not be marked as verified without actual verification.
 
 ## General Constraints
 
@@ -204,11 +110,25 @@ All tasks must respect the following project constraints:
 - No unnecessary generic CQRS or projection frameworks.
 - No unapproved dependency or major-version changes.
 - Preserve existing quality-tool baselines unless explicitly approved otherwise.
+- Avoid unrelated refactoring.
 
 ## Documentation Maintenance
 
-- Keep task specifications aligned with requirements and acceptance criteria.
-- Update affected documentation when an approved architectural decision changes.
+- Keep task specifications aligned with requirements and accepted architectural decisions.
+- Update affected documentation when an approved decision changes.
 - Record completed implementation work in `docs/ai/implementation-log.md`.
 - Keep task scope small enough for meaningful review.
-- Do not duplicate complete ADR content; reference the relevant decisions instead.
+- Keep this index synchronized with the actual task documents and their status.
+
+## Architectural decisions
+
+Before starting the Research phase of a task, review the [Open Decisions Register](../architecture/open-decisions.md).
+
+For each task:
+
+- Identify the open decisions relevant to its scope.
+- Resolve any decision that blocks the task before proceeding to implementation planning.
+- If a decision is not required yet, leave it open or deferred and preserve its resolution trigger in the register.
+- Update the register when a decision is resolved, linking to the ADR or architecture document that records the outcome.
+
+The register is the central reference for pending architectural decisions. Task documents should reference relevant decision IDs rather than duplicating their full content.

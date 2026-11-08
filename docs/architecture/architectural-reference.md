@@ -20,7 +20,7 @@ The following practices are considered valuable and should be maintained where a
 
 - Separation of Domain, Application and Infrastructure responsibilities.
 - Domain code does not depend on Eloquent.
-- Repository contracts are defined in inner layers and implemented in Infrastructure.
+- Contracts are defined in the inner layer that conceptually owns them and implemented by Infrastructure.
 - Application handlers orchestrate commands, queries and use cases.
 - Domain events represent relevant business occurrences.
 - Tests are organized according to their responsibility.
@@ -51,7 +51,9 @@ The reviewed `User` context contains Application classes coupled to Laravel comp
 
 New Application code must not depend directly on HTTP-specific Laravel components, Eloquent or Laravel facades.
 
-The Application layer should define the contracts it needs through ports or interfaces. Infrastructure adapters must provide the concrete implementations.
+The Application layer should define the application-specific ports it needs. Domain-owned abstractions, such as aggregate repository contracts, should remain in the Domain layer.
+
+Infrastructure adapters must provide the concrete implementations.
 
 HTTP validation and request handling belong to the API entry layer.
 
@@ -89,7 +91,7 @@ The Domain must not become coupled to database column names or Eloquent models.
 
 The existing Shared implementation contains contracts and assumptions that may not be appropriate for every new bounded context.
 
-For example, the reviewed domain event contract assumes an integer aggregate identifier, while the existing `domain_events` migration uses UUIDs.
+For example, the reviewed domain event contract assumed an integer aggregate identifier, while the existing `domain_events` migration uses UUIDs.
 
 New contexts must not automatically adopt existing Shared contracts without checking whether their assumptions are compatible with the intended domain model.
 
@@ -113,7 +115,13 @@ Event publication must take place asynchronously after the transaction has commi
 
 The reviewed `UserRepository` combines write and read responsibilities.
 
-New contexts should define repository and query ports according to their actual use cases.
+New contexts should define repository and query abstractions according to their actual responsibilities.
+
+The location of a contract must reflect its conceptual ownership:
+
+- A repository representing the collection and lifecycle of Domain aggregates belongs in Domain.
+- A port required specifically by an Application use case belongs in Application when it does not represent a Domain-owned abstraction.
+- Infrastructure implements these contracts.
 
 Read-specific ports or projections may be introduced when they provide a clear benefit.
 
@@ -125,11 +133,19 @@ Some existing Application tests rely on Laravel and `RefreshDatabase`.
 
 New contexts should distinguish between test types and avoid introducing unnecessary framework dependencies into unit tests.
 
-The expected testing responsibilities are defined in section 9.
+The expected testing responsibilities are defined in section 10.
 
-## 3. Architectural Layers
+## 3. Architectural Layers and Dependency Rules
 
-New bounded contexts must maintain clear separation of responsibilities.
+New bounded contexts must maintain clear separation of responsibilities and follow an inward dependency direction.
+
+The Domain must not depend on Application or Infrastructure.
+
+Application may depend on Domain abstractions and coordinate their behavior.
+
+Infrastructure implements the contracts defined by inner layers and provides technical adapters.
+
+The API entry layer is an inbound adapter that invokes Application use cases.
 
 ### 3.1. Domain
 
@@ -144,6 +160,7 @@ It is responsible for:
 - Domain exceptions.
 - Business invariants.
 - Business behavior.
+- Repository contracts representing Domain aggregate collections and lifecycle.
 
 Rules:
 
@@ -153,10 +170,15 @@ Rules:
 - Must not depend on Symfony Messenger or RabbitMQ.
 - Must not contain infrastructure implementation details.
 - Must not depend on database schemas or storage-specific identifiers.
+- Must not depend on Application services or use cases.
 
 Aggregate Roots must protect their invariants and control changes to their internal entities.
 
 Domain events must represent facts that have actually occurred in the domain.
+
+Domain repository contracts must express Domain concepts and must not expose persistence-specific details such as Eloquent models, query builders, SQL or database transactions.
+
+A Domain repository contract may expose operations required to retrieve and persist its aggregate roots. Its exact methods must be driven by the aggregate's lifecycle and business requirements.
 
 Domain events must not be treated automatically as external integration contracts.
 
@@ -170,10 +192,16 @@ It is responsible for:
 - Commands and command handlers where useful.
 - Queries and query handlers where useful.
 - Input and output ports.
-- Repository and service contracts required by use cases.
+- Application-specific service and infrastructure ports.
 - Orchestration of domain behavior.
 - Coordination of transaction boundaries through appropriate abstractions.
 - Defining the application-level requirements for reliable integration message recording when required by a use case.
+
+Repository contracts do not automatically belong to Application.
+
+When a repository represents the collection and lifecycle of a Domain aggregate, its contract belongs to Domain. Application use cases consume that contract.
+
+Application-specific ports belong to Application when their purpose is to satisfy a use-case requirement rather than represent a Domain abstraction.
 
 Rules:
 
@@ -183,6 +211,8 @@ Rules:
 - Must not contain infrastructure implementations.
 - Must not duplicate business invariants already owned by the Domain.
 - Must not depend directly on RabbitMQ or Symfony Messenger.
+- May depend on Domain contracts and abstractions.
+- Must not introduce dependencies from Domain back into Application.
 
 CQRS should be applied pragmatically where it improves clarity or separation of responsibilities.
 
@@ -193,7 +223,8 @@ The Infrastructure layer implements the technical details required by the Applic
 It is responsible for:
 
 - Eloquent models.
-- Repository implementations.
+- Domain repository implementations.
+- Application port implementations.
 - Persistence mappers.
 - Database access.
 - Unit of Work or transaction adapters where required.
@@ -207,7 +238,7 @@ It is responsible for:
 
 Infrastructure implementations must respect the contracts defined by inner layers.
 
-Persistence concerns must not leak into the Domain.
+Persistence concerns must not leak into the Domain or Application.
 
 ### 3.4. API / HTTP Entry Layer
 
@@ -546,7 +577,7 @@ Application tests must:
 
 - Test use case orchestration.
 - Use test doubles for ports and dependencies.
-- Verify interactions with repository contracts and other abstractions.
+- Verify interactions with Domain repository contracts and Application-specific ports.
 - Verify application-level error handling.
 - Verify transaction coordination through the relevant abstraction.
 - Avoid requiring Laravel bootstrapping when it is not necessary.

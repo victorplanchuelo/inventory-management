@@ -1,8 +1,8 @@
 # Domain Model — StockFlow
 
-This document describes the current conceptual domain model for StockFlow. It identifies the main aggregates, entities, Value Objects, responsibilities and business invariants.
+This document describes the conceptual domain model for StockFlow. It identifies the bounded contexts, aggregates, entities, Value Objects, responsibilities and business invariants.
 
-Some design details remain proposals and must be validated through task specifications, implementation plans and tests before being treated as final decisions.
+It distinguishes agreed design decisions from aspects that remain to be specified in task documents or ADRs.
 
 The model follows the modular monolith and bounded-context boundaries defined in the architecture documentation.
 
@@ -26,15 +26,17 @@ Each context owns its own domain model, persistence and business rules.
 
 **Responsibility:** preserve order consistency and enforce valid order state transitions.
 
-Candidate concepts:
+Concepts:
 
 - `Order`: Aggregate Root.
 - `OrderId`: order identity.
 - `OrderItem`: order line, containing a product reference and requested quantity.
 - `ProductId`: reference to a product owned by Catalog, or an opaque identifier if Catalog is not yet implemented.
-- `Quantity`: positive quantity Value Object.
+- `Quantity`: positive quantity Value Object for order lines.
 - `OrderStatus`: explicit order lifecycle state.
-- `OrderRepository`: persistence port required by the Application layer.
+- `OrderRepository`: Domain repository contract for the `Order` aggregate.
+
+`OrderRepository` belongs to the Domain layer because it represents the collection and lifecycle of Order aggregates. The Application layer uses this contract to coordinate use cases, and Infrastructure provides its implementation.
 
 Candidate states include:
 
@@ -87,94 +89,102 @@ The exact product information that must be retained on an order line, including 
 
 ### 3.1. Aggregate: StockItem
 
-**Responsibility:** protect stock quantities and availability for a product.
+**Responsibility:** protect stock quantities, reservations and availability for one product.
 
-Candidate concepts:
+`StockItem` is the Aggregate Root and initially there is exactly one `StockItem` per `ProductId`.
 
-- `StockItem`: Aggregate Root.
-- `StockItemId`: stock item identity.
-- `ProductId`: reference to the product whose stock is managed.
-- `Quantity`: quantity Value Object.
-- `StockReservation`: reservation record or entity.
-- `StockRepository`: persistence port required by the Application layer.
+It owns:
 
-Inventory owns stock information, not product descriptions or catalog metadata.
+- `StockItemId`: UUID identifying the aggregate.
+- `ProductId`: UUID reference to the product.
+- `onHand`: physical stock quantity.
+- `reserved`: quantity committed to active reservations.
+- Its collection of `StockReservation` entities.
+
+The aggregate maintains:
+
+`0 <= reserved <= onHand`
 
 ### 3.2. Stock Quantities
 
-The conceptual stock relationship is:
+The stock relationship is:
 
-`available = on_hand - reserved`
+`available = onHand - reserved`
 
 Where:
 
-- `on_hand` represents the physical quantity currently held.
+- `onHand` represents the physical quantity currently held.
 - `reserved` represents the quantity committed to active reservations.
 - `available` represents the quantity that can still be reserved.
 
-Candidate invariants:
+`onHand` and `reserved` are maintained as aggregate state. `available` is calculated and is not an independent persisted counter.
 
-- Available stock must never be negative.
-- Reserved quantity must never exceed on-hand quantity.
-- Adding stock requires a positive quantity.
+The aggregate must preserve these invariants:
+
+- `onHand` cannot be negative.
+- `reserved` cannot be negative.
+- `reserved` cannot exceed `onHand`.
+- `available` cannot be negative.
+- Adding stock requires a strictly positive quantity.
+- A reservation requires a strictly positive quantity.
 - A reservation must not exceed available stock.
-- Concurrent operations must not over-reserve stock.
 - Releasing a reservation must not release it more than once.
 
-The persistence strategy for `reserved` remains to be finalized.
+The `Quantity` Value Object must support zero because stock counters and calculated availability can legitimately be zero. Operations that add or reserve stock must explicitly require a strictly positive quantity.
 
-Two possible approaches are:
-
-1. Store `reserved` as a counter on `StockItem`, while maintaining reservation records and updating both atomically.
-2. Derive `reserved` from active reservation records.
-
-The first approach is recommended for efficient stock operations, provided all updates are protected by the same transaction and locking strategy. The final decision must be recorded in the Inventory implementation specification.
+Concurrent operations must not over-reserve stock. The persistence and transaction strategy must protect the aggregate invariants.
 
 ### 3.3. Stock Reservation
 
 A reservation represents stock committed to an order.
 
-Candidate concepts:
+`StockReservation` is an Entity owned by the `StockItem` aggregate, not an independent Aggregate Root.
+
+Concepts:
 
 - `ReservationId`: reservation identity.
-- `StockItemId`: the stock item being reserved.
 - `OrderId`: the order requesting the reservation.
 - `Quantity`: reserved quantity.
-- `ReservationStatus`: reservation lifecycle state, such as `Active` or `Released`.
+- Reservation lifecycle state, including whether it is active or released.
 
-A reservation may be modeled as an entity or a dedicated persistence record, depending on the final aggregate design.
+The reservation does not have an independent repository. Its lifecycle and consistency are controlled by its owning `StockItem`.
 
-Candidate invariants:
+The aggregate must enforce the following invariants:
 
-- A reservation must reference a valid stock item.
-- The reserved quantity must be positive.
-- A reservation must not exceed the available quantity.
+- A reservation must have a unique identity.
+- The reserved quantity must be strictly positive.
+- A reservation must not exceed available stock.
 - Only an active reservation can be released.
 - Releasing a reservation must happen at most once.
 - Reservation records and stock counters must remain consistent.
 
-The exact lifecycle, identity and aggregate ownership of reservations must be defined in the Inventory task specification.
+To release a reservation, the application must retrieve its owning `StockItem` through a repository operation such as:
+
+`searchByReservationId(ReservationId): ?StockItem`
+
+This operation must return the fully hydrated aggregate, including its reservation entities, so that the domain can validate and execute the release.
+
+The release command therefore does not need a `ProductId`. The owning aggregate is identified through the reservation identifier.
 
 ### 3.4. Stock Operations
 
-The Inventory context must support the following business capabilities:
+The Inventory context must support the following business capabilities.
 
 **Register initial stock**
 
-- Create stock for a product with an initial quantity.
+- Create a stock item for a product with an initial quantity.
 - Reject invalid quantities.
-- Prevent unintended duplicate stock registration.
-
-Whether there must be exactly one `StockItem` per `ProductId` is still an open design decision. A unique constraint should only be introduced after confirming this business rule.
+- Prevent duplicate stock registration for the same `ProductId`.
 
 **Add stock**
 
-- Increase physical stock by a positive quantity.
+- Increase physical stock by a strictly positive quantity.
 - Preserve stock invariants.
 
 **Reserve stock**
 
-- Reserve a positive quantity when sufficient stock is available.
+- Reserve a strictly positive quantity when sufficient stock is available.
+- Create a reservation associated with an order.
 - Reject a reservation that exceeds available stock.
 - Protect the operation against concurrent over-reservation.
 
@@ -182,6 +192,7 @@ Whether there must be exactly one `StockItem` per `ProductId` is still an open d
 
 - Release an active reservation.
 - Prevent repeated releases from increasing availability more than once.
+- Update reservation state and stock counters consistently.
 
 **Retrieve stock**
 
@@ -220,6 +231,8 @@ The following rules apply:
 - `Order` must not reference `StockItem` as an internal entity.
 - Coordination belongs to the Application use case and its required ports.
 - Inventory availability projections must never be used as the authority for reservation decisions.
+
+Each context retains ownership of its domain model and repository contracts. Application-level coordination must not bypass those boundaries.
 
 The exact transaction abstraction and cross-context application ports must be defined in the implementation plan.
 
@@ -315,18 +328,21 @@ If Catalog is deferred, the initial implementation must use `ProductId` as a ref
 
 Domain identifiers and quantities must use explicit types where appropriate.
 
-Candidate identifiers:
+Identifiers:
 
 - `OrderId`
 - `ProductId`
 - `StockItemId`
 - `ReservationId`
 
+The initial implementation uses UUID identifiers.
+
+Specific identifier Value Objects must be used for each domain concept, built on the shared UUID abstraction where appropriate.
+
 Rules:
 
 - Identifiers must encapsulate their own validation and behavior.
 - Domain identifiers must not be coupled unnecessarily to database column types.
-- UUID or ULID strategies may be used where appropriate.
 - A context must not assume that identifiers are integers.
 - References to another context's entities must use identifiers rather than direct object references.
 - Value Objects must validate their primitive values during construction.
@@ -334,7 +350,7 @@ Rules:
 - `toPrimitives()` must return primitives, not Value Objects.
 - Mutable internal state must not be exposed.
 
-The identifier strategy for each aggregate and the compatibility of existing Shared contracts must be reviewed before implementation.
+`Quantity` must support zero and reject negative values. Operations requiring positive quantities must enforce that additional constraint explicitly.
 
 ## 8. Domain Events and Integration Events
 
@@ -392,18 +408,24 @@ Concurrency protection for stock operations must follow ADR 002, including deter
 
 The following points require explicit resolution in the relevant task specifications or ADRs:
 
-1. Whether `reserved` is stored on `StockItem` or derived from active reservations.
-2. Whether one `StockItem` must exist per `ProductId`.
-3. Whether `StockReservation` is an entity within `StockItem` or a separate persistence model with its own lifecycle.
-4. The final order lifecycle states and permitted transitions.
-5. Whether order lines retain product descriptive snapshots.
-6. The exact integration event payloads, versions and publication requirements.
-7. The aggregate versioning strategy for detecting out-of-order messages.
-8. The initialization and reconciliation strategy for each projection.
-9. The exact transaction and application port abstractions for cross-context coordination.
-10. The timing and scope of introducing Catalog.
+1. The final order lifecycle states and permitted transitions.
+2. Whether order lines retain product descriptive snapshots.
+3. The exact integration event payloads, versions and publication requirements.
+4. The aggregate versioning strategy for detecting out-of-order messages.
+5. The initialization and reconciliation strategy for each projection.
+6. The exact transaction abstraction and application-level ports for cross-context coordination.
+7. The timing and scope of introducing Catalog.
 
-These decisions must not be silently assumed during implementation.
+The following decisions are already established and must not be reopened without an explicit architecture review:
+
+- One `StockItem` per `ProductId`, enforced by a unique constraint.
+- `StockItem` owns its `StockReservation` entities.
+- `onHand` and `reserved` are aggregate state; `available` is calculated.
+- `Quantity` is non-negative, while stock addition and reservation operations require positive quantities.
+- A reservation is released by retrieving its owning `StockItem` using `ReservationId`.
+- There is no independent Reservation repository.
+- `StockItemRepository` and `OrderRepository` are Domain contracts representing their respective aggregate repositories.
+- Repository implementations belong to Infrastructure.
 
 ## 11. Scope and Evolution
 

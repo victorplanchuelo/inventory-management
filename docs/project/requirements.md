@@ -6,25 +6,35 @@
 
 The API must allow creating an order with at least one line item.
 
-Each line item identifies a product through its `ProductId` and specifies a positive quantity.
+Each line item identifies a product through its `ProductId` and specifies a positive integer quantity.
 
 Product descriptive information must not be owned by the Orders context.
 
-### FR-02 — Atomic Confirmation
+Orders must not depend on Catalog being available or implemented. Until Catalog is introduced, `ProductId` remains an external product reference.
+
+### FR-02 — Atomic Order Confirmation
 
 An order can only be confirmed if all its line items can be reserved.
 
-The entire operation must be atomic: if any line item fails, no partial reservation or confirmed order must remain.
+The entire confirmation operation must be atomic: if any line item cannot be reserved, no partial reservation or confirmed order must remain.
 
 Stock availability must be validated against Inventory's authoritative state, not against an eventually consistent projection.
 
-The operation must follow the transaction and locking strategy defined in ADR 002.
+Order persistence, line items, stock reservations and the required Outbox records must be committed or rolled back together within the MySQL transaction defined by ADR 002.
+
+The implementation must acquire the required inventory row locks in a deterministic order and keep the transaction as short as possible.
+
+RabbitMQ must not participate in the synchronous decision of whether stock is available. No network I/O to RabbitMQ may occur while the transaction holds inventory locks.
+
+Whether order creation and confirmation are performed in one use case or separate use cases remains a lifecycle decision to be resolved in the Orders task specification.
 
 ### FR-03 — Retrieve Order
 
 The API must allow retrieving an order's identifier, status and line items.
 
 Where product descriptive information is required, Orders may use a local product projection rather than querying Catalog's internal persistence.
+
+Projection-backed information must be understood as eventually consistent.
 
 ### FR-04 — Cancel Order
 
@@ -34,21 +44,35 @@ If active reservations exist, they must be released consistently.
 
 Repeated cancellation requests must not release the same reservation more than once.
 
+The cancellation operation must respect the order lifecycle and reservation state rules.
+
 ### FR-05 — Register Inventory
 
-The API must allow registering the initial inventory quantity for a product, preventing invalid states and unplanned duplicates.
+The API must allow registering the initial inventory quantity for a product.
 
-The exact uniqueness rule for stock items per product must be validated before implementation.
+Exactly one `StockItem` must exist per `ProductId`. Registering another stock item for an already registered product must be rejected.
+
+The operation must prevent invalid inventory states.
+
+Inventory initially maintains exactly one StockItem per ProductId. Duplicate registration must be rejected.
 
 ### FR-06 — Add Inventory
 
 The API must allow increasing the stock of an existing product by a positive quantity.
 
+The operation must preserve the inventory aggregate's invariants.
+
 ### FR-07 — Retrieve Inventory
 
-The API must allow retrieving available and reserved quantities and, if supported by the model, total quantities.
+The API must allow retrieving the inventory quantities for a product, including:
 
-The returned values must be consistent with Inventory's authoritative state when retrieved directly from Inventory.
+- `onHand`: physical stock currently held.
+- `reserved`: stock allocated to active reservations.
+- `available`: stock that can still be reserved, calculated as `onHand - reserved`.
+
+The values must be consistent with Inventory's authoritative state when retrieved directly from Inventory.
+
+The API may expose additional quantities if supported by the model, but it must not treat a projection as authoritative for stock decisions.
 
 ### FR-08 — Publish Integration Events
 
@@ -57,6 +81,8 @@ Integration events that must be communicated to other components must be recorde
 Each bounded context that publishes integration events must own its Outbox records and publication responsibilities.
 
 The event contract must be independent of internal domain classes and transport-specific implementation details.
+
+The Outbox is a reliable publication mechanism, not an Event Store.
 
 ### FR-09 — Consume Integration Events
 
@@ -111,6 +137,8 @@ Consumers must not assume that message transport ordering alone guarantees corre
 
 Orders and Inventory must identify products through `ProductId`.
 
+`ProductId` is a UUID reference and does not imply ownership of a Product aggregate by Orders or Inventory.
+
 If Catalog is not implemented initially, `ProductId` must remain an external reference.
 
 Inventory and Orders must not introduce duplicate Product aggregates or take ownership of product descriptive information.
@@ -143,11 +171,17 @@ Reservations must be protected against concurrent race conditions through row lo
 
 The implementation must prevent over-reservation, including when multiple orders compete for the last available units.
 
+The implementation must define how deadlocks are handled and retried.
+
+Concurrency behavior must be tested against a real MySQL instance.
+
 ### NFR-03 — Separation of Concerns
 
 The Domain and Application layers must not depend on Laravel, Eloquent, HTTP, RabbitMQ or Symfony Messenger.
 
 Bounded contexts must not access or modify another context's internal domain model or persistence.
+
+Domain aggregate repository contracts belong to the Domain layer. Use-case-specific ports may belong to the Application layer. Infrastructure implements these contracts.
 
 ### NFR-04 — Testability
 
@@ -158,6 +192,8 @@ Application use cases must be tested independently of infrastructure where pract
 Adapters must be tested through integration tests.
 
 Message processing, projection updates and transaction boundaries must have appropriate automated coverage.
+
+Concurrency and rollback behavior must be tested against MySQL.
 
 ### NFR-05 — Idempotency
 
@@ -218,13 +254,30 @@ Projection initialization and reconciliation must have a documented strategy.
 
 ## Initial Business Rules
 
+### Orders
+
 - An order must contain at least one line item.
 - Requested quantities must be positive integers.
-- More stock than is available cannot be reserved.
 - An order cannot be partially confirmed.
 - State transitions must be explicitly modeled.
-- A reservation can only be released once.
 - A cancellation must not release stock twice.
+
+### Inventory
+
+- Exactly one `StockItem` exists per `ProductId`.
+- `ProductId` is a UUID reference.
+- `StockItem` owns its reservation entities.
+- `onHand` and `reserved` are stored quantities.
+- `available` is calculated as `onHand - reserved`.
+- Inventory quantities must be non-negative.
+- `reserved` must never exceed `onHand`.
+- Operations that add stock or reserve stock require a positive quantity.
+- More stock than is available cannot be reserved.
+- An active reservation can only be released once.
+- A reservation is identified independently from its owning stock item.
+
+### Cross-Context and Messaging
+
 - Domain identifiers must not depend on specific database types.
 - An event must not carry secrets or information that the consumer does not need.
 - Each bounded context owns its domain model and business rules.
@@ -241,18 +294,18 @@ Projection initialization and reconciliation must have a documented strategy.
 - Whether an order is created directly in the `pending` state or confirmed within the same use case.
 - Whether modifying already-created orders is allowed.
 - Reservation expiration policy.
-- Whether negative inventory is allowed for administrative adjustments (no, by default).
 - HTTP request idempotency key policy.
 - Exact error format and HTTP status codes.
 - Authentication and authorization.
 - Cancellation policy after events have been published.
 - Whether order lines retain product descriptive snapshots.
 
-### Inventory Model
+### Inventory Operations and API
 
-- Whether `reserved` is stored on `StockItem` or derived from active reservations.
-- Whether exactly one `StockItem` must exist per `ProductId`.
-- Whether `StockReservation` is an entity within `StockItem` or a separate persistence model with its own lifecycle.
+- Whether administrative stock adjustments, including reductions, are required in the initial scope.
+- Whether negative inventory is ever permitted for exceptional administrative operations. The default rule is no.
+- Exact API request and response contracts.
+- Exact error behavior for duplicate stock registration, unknown products and insufficient availability.
 
 ### Integration Messaging
 

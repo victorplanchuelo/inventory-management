@@ -30,6 +30,8 @@ Architectural Decision Records document important decisions, their context and c
 - `adr/004-integration-events-and-cross-context-communication.md`: integration event contracts, versioning and cross-context communication.
 - `adr/005-cross-context-projections.md`: projection ownership, eventual consistency, API read models and reconciliation.
 
+- **[Open Decisions Register](architecture/open-decisions.md)**: registro centralizado de decisiones arquitectónicas pendientes, aplazadas y en revisión. Consulta este documento para conocer los asuntos que deben resolverse antes de abordar determinadas funcionalidades o cambios.
+
 ## Tasks
 
 Implementation specifications derived from the requirements, acceptance criteria and architectural decisions.
