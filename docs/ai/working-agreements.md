@@ -86,3 +86,21 @@ A task is complete when:
 - The diff contains no unrelated changes.
 - The person responsible understands the code and can explain its trade-offs.
 
+## Documentation
+
+Documentation is a mandatory phase between Research and Plan.
+
+Before creating an implementation plan:
+
+- Review the existing documentation affected by the task.
+- Identify requirements, architectural decisions, domain-model definitions, open decisions, and task specifications that may need updates.
+- Ensure that documentation reflects the agreed decisions and does not contain contradictions.
+- Update the relevant documentation before proceeding to plan creation.
+- Keep changes focused on the current task. Do not expand the scope by documenting unrelated future work.
+- Preserve unresolved decisions as explicit open decisions. Do not silently turn assumptions into architectural decisions.
+- Ensure that task documentation, architecture documentation, requirements, and working agreements remain consistent.
+
+The Documentation phase is complete when all relevant documentation has been reviewed, required updates have been made, and the changes are ready for review and commit.
+
+Implementation planning must not begin while relevant documentation remains inconsistent or required documentation updates are pending.
+

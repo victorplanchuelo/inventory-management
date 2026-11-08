@@ -478,7 +478,11 @@ A projection must not be used to make a business decision that requires the auth
 
 In particular, an Orders inventory projection is advisory.
 
-Order confirmation must synchronously validate and reserve stock against Inventory's authoritative state, within the same MySQL transaction and locking strategy defined in ADR 002.
+Any stock reservation must be validated against Inventory's authoritative state through the Inventory application boundary.
+
+Inventory must commit all requested reservations atomically within an Inventory-owned transaction, as defined in ADR 002.
+
+The transaction coordinating Inventory reservation with Orders order persistence remains unresolved and is tracked by OD-001. No shared transaction may be assumed.
 
 ### 7.5. Projection Rebuilding and Reconciliation
 
