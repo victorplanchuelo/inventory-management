@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\Inventory\Domain;
 
 use Manager\Inventory\Domain\Event\InitialStockRegisteredDomainEvent;
+use Manager\Inventory\Domain\Event\StockAddedDomainEvent;
 use Manager\Inventory\Domain\Exception\QuantityMustBePositiveException;
 use Manager\Inventory\Domain\StockItem;
 use Manager\Inventory\Domain\ValueObject\Quantity;
@@ -85,6 +86,56 @@ final class StockItemTest extends InventoryUnitTestCase
 				'stockItemId' => $stockItemId->value(),
 				'productId' => $productId->value(),
 				'initialQuantity' => 15,
+			],
+			$events[0]->toPrimitives()
+		);
+	}
+
+	#[Test]
+	public function it_should_add_stock_and_increase_on_hand_and_available(): void
+	{
+		$stockItem = StockItem::register(StockItemIdMother::create(), ProductIdMother::create(), new Quantity(10));
+		$stockItem->pullDomainEvents();
+
+		$stockItem->addStock(new Quantity(5));
+
+		self::assertSame(15, $stockItem->onHand()->value());
+		self::assertSame(0, $stockItem->reserved()->value());
+		self::assertSame(15, $stockItem->available()->value());
+	}
+
+	#[Test]
+	public function it_should_reject_zero_stock_additions(): void
+	{
+		$stockItem = StockItem::register(StockItemIdMother::create(), ProductIdMother::create(), new Quantity(10));
+
+		$this->expectException(QuantityMustBePositiveException::class);
+
+		$stockItem->addStock(new Quantity(0));
+	}
+
+	#[Test]
+	public function it_should_record_a_stock_added_domain_event(): void
+	{
+		$stockItemId = StockItemIdMother::create();
+		$productId = ProductIdMother::create();
+		$stockItem = StockItem::register($stockItemId, $productId, new Quantity(10));
+		$stockItem->pullDomainEvents();
+
+		$stockItem->addStock(new Quantity(5));
+
+		$events = $stockItem->pullDomainEvents();
+
+		self::assertCount(1, $events);
+		self::assertInstanceOf(StockAddedDomainEvent::class, $events[0]);
+		self::assertSame($stockItemId->value(), $events[0]->aggregateId());
+		self::assertSame(
+			[
+				'stockItemId' => $stockItemId->value(),
+				'productId' => $productId->value(),
+				'addedQuantity' => 5,
+				'onHand' => 15,
+				'reserved' => 0,
 			],
 			$events[0]->toPrimitives()
 		);

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Inventory\Application\RegisterInitialStock;
 
-use LogicException;
 use Manager\Inventory\Application\RegisterInitialStock\RegisterInitialStockCommand;
 use Manager\Inventory\Application\RegisterInitialStock\RegisterInitialStockCommandHandler;
 use Manager\Inventory\Domain\Exception\InvalidQuantityException;
@@ -15,8 +14,6 @@ use Manager\Inventory\Domain\StockItemRepository;
 use Manager\Inventory\Domain\ValueObject\ProductId;
 use Manager\Shared\Domain\UuidGenerator;
 use Mockery;
-use Mockery\CompositeExpectation;
-use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Unit\Inventory\Domain\ObjectMother\ProductIdMother;
 use Tests\Unit\Inventory\Domain\ObjectMother\StockItemIdMother;
@@ -166,66 +163,5 @@ final class RegisterInitialStockCommandHandlerTest extends InventoryUnitTestCase
 		$this->expectException(InvalidQuantityException::class);
 
 		$handler($command);
-	}
-
-	/**
-	 * @template T of object
-	 * @param class-string<T> $interface
-	 * @return MockInterface&T
-	 */
-	private function mockClass(string $interface): MockInterface
-	{
-		return Mockery::mock($interface);
-	}
-
-	private function expectation(MockInterface $mock, string $method): MockeryExpectation
-	{
-		$expectation = $mock->shouldReceive($method);
-
-		if (!$expectation instanceof CompositeExpectation) {
-			throw new LogicException(sprintf('Unexpected Mockery expectation type <%s>.', get_debug_type($expectation)));
-		}
-
-		return new MockeryExpectation($expectation);
-	}
-}
-
-final class MockeryExpectation
-{
-	public function __construct(private readonly CompositeExpectation $expectation) {}
-
-	public function once(): self
-	{
-		$this->expectation->__call('once', []);
-
-		return $this;
-	}
-
-	public function with(mixed ...$arguments): self
-	{
-		$this->expectation->__call('with', $arguments);
-
-		return $this;
-	}
-
-	public function withNoArgs(): self
-	{
-		$this->expectation->__call('withNoArgs', []);
-
-		return $this;
-	}
-
-	public function andReturn(mixed ...$values): self
-	{
-		$this->expectation->__call('andReturn', $values);
-
-		return $this;
-	}
-
-	public function andReturnNull(): self
-	{
-		$this->expectation->__call('andReturnNull', []);
-
-		return $this;
 	}
 }

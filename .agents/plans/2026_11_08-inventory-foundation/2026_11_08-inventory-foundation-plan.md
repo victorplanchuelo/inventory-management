@@ -17,7 +17,7 @@ implemented_by:
     version: "4.1"
     reasoning_effort: "medium"
 
-last_implementation_at: "2026-11-08T18:01:40Z"
+last_implementation_at: "2026-11-08T18:25:17Z"
 has_completed_all_phases: "false"
 ---
 
@@ -202,12 +202,16 @@ All Inventory exceptions extend `Manager\Shared\Domain\DomainError`. Because `Do
 - `Manager\Inventory\Domain\Event\StockAddedDomainEvent extends Manager\Shared\Domain\Bus\Event\DomainEvent`:
   - `eventName(): "inventory.stock.added"`
   - `__construct(StockItemId $stockItemId, string $productId, int $addedQuantity, int $onHand, int $reserved, ?string $eventId = null, ?string $occurredOn = null)`
+  - The constructor is the single validation source and converts primitives to value objects before storing them:
+    - `productId` through `ProductId`, so an invalid UUID throws `InvalidArgumentException`.
+    - `addedQuantity` through `Quantity`, so a negative value throws `InvalidQuantityException`; zero throws `QuantityMustBePositiveException`.
+    - `onHand` and `reserved` through `Quantity`, so negative values throw `InvalidQuantityException`.
   - The constructor passes `$stockItemId->value()` to the base `DomainEvent`, so `aggregateId()` always equals `stockItemId->value()`.
   - The constructor stores the `StockItemId` in a readonly property so `toPrimitives()` can serialize it.
   - `fromPrimitives(string $aggregateId, array $body, string $eventId, string $occurredOn): self`
-  - `fromPrimitives()` validates the payload and builds the `StockItemId` from `aggregateId`.
+  - `fromPrimitives()` validates the payload shape and primitive types, requires `body['stockItemId']` to match `aggregateId` and delegates all value validation to the constructor.
   - `toPrimitives(): array` with `stockItemId`, `productId`, `addedQuantity`, `onHand` and `reserved`.
-  - `fromPrimitives()` throws `InvalidArgumentException` when `body['stockItemId']` does not match `aggregateId`.
+  - `fromPrimitives()` throws `InvalidArgumentException` for missing fields, wrong primitive types or a `stockItemId` that does not match `aggregateId`.
 - `Manager\Inventory\Domain\Exception\StockItemNotFoundException extends Manager\Shared\Domain\DomainError`:
   - `__construct(ProductId $productId)`
   - Stores the missing `ProductId` before calling `parent::__construct()`.
@@ -235,31 +239,34 @@ All Inventory exceptions extend `Manager\Shared\Domain\DomainError`. Because `Do
   - Does not modify `reserved` or existing reservations.
   - Records `StockAddedDomainEvent` with the expected payload.
 - `Tests\Unit\Inventory\Domain\Event\StockAddedDomainEventTest`:
-  - Reconstructs the event from primitives.
-  - Preserves the aggregate identifier and payload.
   - Guarantees that the constructor derives `aggregateId()` from `StockItemId`.
+  - Reconstructs the event from primitives preserving the aggregate identifier, payload, event ID and occurrence date.
   - Rejects a `stockItemId` that does not match `aggregateId` in `fromPrimitives()`.
+  - Rejects an invalid `productId` in the constructor and when reconstructing from primitives.
+  - Rejects zero and negative `addedQuantity` in the constructor and when reconstructing from primitives, preserving the `QuantityMustBePositiveException` / `InvalidQuantityException` distinction.
+  - Rejects negative `onHand` and `reserved` values in the constructor.
 - `Tests\Unit\Inventory\Application\AddStock\AddStockCommandHandlerTest`:
-  - Adds stock to an existing `StockItem`.
-  - Rejects an unknown `ProductId`.
+  - Adds stock to an existing `StockItem` and persists the updated aggregate.
+  - Rejects an unknown `ProductId` with `StockItemNotFoundException` without saving.
   - Propagates quantity errors from the integer command input:
-    - Zero reaches `StockItem::addStock()` and throws `QuantityMustBePositiveException`.
-    - A negative value fails `Quantity` construction with `InvalidQuantityException`.
+    - Zero reaches `StockItem::addStock()` and throws `QuantityMustBePositiveException` without saving.
+    - A negative value fails `Quantity` construction with `InvalidQuantityException` before searching or saving.
   - Persists the aggregate through the repository port.
-- `Tests\Unit\Inventory\Domain\ObjectMother\StockItemMother` (modified to support stock addition fixtures).
+- `Tests\Unit\Inventory\Domain\ObjectMother\StockItemMother` needs no change because its existing `productId` and `initialQuantity` parameters cover the new fixtures.
+- `Tests\Unit\Inventory\InventoryUnitTestCase` now hosts the generic typed Mockery helpers, backed by `Tests\Unit\Inventory\MockeryExpectation`, so both Inventory command-handler tests share the same setup.
 
 **To-do actions:**
 
-- [ ] Add `StockAddedDomainEvent` with its event name, payload, primitive reconstruction and aggregate identifier derived from `StockItemId`.
-- [ ] Add `StockItemNotFoundException` with an explicit constructor storing the missing `ProductId`.
-- [ ] Implement `StockItem::addStock()` with zero-quantity validation, counter updates and event recording.
-- [ ] Implement `AddStockCommand` and `AddStockCommandHandler` using the repository port.
-- [ ] Extend the StockItem tests, add the StockAdded event test and the AddStock handler test. Keep negative-quantity coverage in `QuantityTest` and command-input tests; aggregate tests cover zero.
-- [ ] Extend the object mothers required by the new fixtures.
-- [ ] Run `vendor/bin/phpunit --testsuite=Unit` and fix any failures.
-- [ ] Run ECS and PHPStan on the new and modified Inventory paths and fix any issues introduced by this phase without adding baseline entries.
-- [ ] Verify the changes in terms of typechecking, linting and tests using the project's verification command. Fix issues if any.
-- [ ] STOP. Present the changes to the user for review and suggest commit messages. Do NOT proceed to the next phase until the user explicitly asks.
+- [x] Add `StockAddedDomainEvent` with its event name, payload, primitive reconstruction and aggregate identifier derived from `StockItemId`.
+- [x] Add `StockItemNotFoundException` with an explicit constructor storing the missing `ProductId`.
+- [x] Implement `StockItem::addStock()` with zero-quantity validation, counter updates and event recording.
+- [x] Implement `AddStockCommand` and `AddStockCommandHandler` using the repository port.
+- [x] Extend the StockItem tests, add the StockAdded event test and the AddStock handler test. Keep negative-quantity coverage in `QuantityTest` and command-input tests; aggregate tests cover zero.
+- [x] Extend the object mothers required by the new fixtures; no change was required because `StockItemMother` already accepts `productId` and `initialQuantity`.
+- [x] Run `vendor/bin/phpunit --testsuite=Unit` and fix any failures.
+- [x] Run ECS and PHPStan on the new and modified Inventory paths and fix any issues introduced by this phase without adding baseline entries.
+- [x] Verify the changes in terms of typechecking, linting and tests using the project's verification command. Fix issues if any.
+- [x] STOP. Present the changes to the user for review and suggest commit messages. Do NOT proceed to the next phase until the user explicitly asks.
 
 ### Phase 3: Stock reservation
 
@@ -462,6 +469,6 @@ All Inventory exceptions extend `Manager\Shared\Domain\DomainError`. Because `Do
 
 ## Next step
 
-Start Phase 2: add stock with `StockItem::addStock()`, `StockAddedDomainEvent` and the `AddStock` use case.
+Start Phase 3: stock reservation with `StockReservation`, the reservation operation, `StockReservedDomainEvent` and the `ReserveStock` use case.
 
-The first inventory seeds are planted 🌱 and ready to grow with 🐢 💨 (Turbotuga™, [Codely](https://codely.com)'s mascot).
+The first inventory seeds are planted 🌱 and now the shelves start filling with boxes 📦, ready to grow with 🐢 💨 (Turbotuga™, [Codely](https://codely.com)'s mascot).

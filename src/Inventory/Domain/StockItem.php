@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Manager\Inventory\Domain;
 
 use Manager\Inventory\Domain\Event\InitialStockRegisteredDomainEvent;
+use Manager\Inventory\Domain\Event\StockAddedDomainEvent;
 use Manager\Inventory\Domain\Exception\QuantityMustBePositiveException;
 use Manager\Inventory\Domain\ValueObject\ProductId;
 use Manager\Inventory\Domain\ValueObject\Quantity;
@@ -51,6 +52,25 @@ final class StockItem extends AggregateRoot
 	public function reserved(): Quantity
 	{
 		return $this->reserved;
+	}
+
+	public function addStock(Quantity $quantity): void
+	{
+		if (!$quantity->isPositive()) {
+			throw new QuantityMustBePositiveException($quantity->value());
+		}
+
+		$this->onHand = new Quantity($this->onHand->value() + $quantity->value());
+
+		$this->record(
+			new StockAddedDomainEvent(
+				$this->id,
+				$this->productId->value(),
+				$quantity->value(),
+				$this->onHand->value(),
+				$this->reserved->value()
+			)
+		);
 	}
 
 	public function available(): Quantity
