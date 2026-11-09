@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Manager\Inventory\Domain;
 
 use Manager\Inventory\Domain\Event\InitialStockRegisteredDomainEvent;
+use Manager\Inventory\Domain\Event\ReservationReleasedDomainEvent;
 use Manager\Inventory\Domain\Event\StockAddedDomainEvent;
 use Manager\Inventory\Domain\Event\StockReservedDomainEvent;
 use Manager\Inventory\Domain\Exception\InsufficientStockException;
 use Manager\Inventory\Domain\Exception\QuantityMustBePositiveException;
 use Manager\Inventory\Domain\Exception\ReservationAlreadyExistsException;
+use Manager\Inventory\Domain\Exception\ReservationNotFoundException;
 use Manager\Inventory\Domain\ValueObject\OrderId;
 use Manager\Inventory\Domain\ValueObject\ProductId;
 use Manager\Inventory\Domain\ValueObject\Quantity;
@@ -127,5 +129,42 @@ final class StockItem extends AggregateRoot
 				$this->reserved->value()
 			)
 		);
+	}
+
+	public function releaseReservation(ReservationId $reservationId): void
+	{
+		$index = null;
+
+		foreach ($this->reservations as $key => $existing) {
+			if ($existing->id()->equals($reservationId)) {
+				$index = $key;
+				break;
+			}
+		}
+
+		if ($index === null) {
+			throw new ReservationNotFoundException($reservationId);
+		}
+
+		$reservation = $this->reservations[$index];
+
+		$releasedReservation = $reservation->release();
+
+		$releasedCounter = new Quantity($this->reserved->value() - $reservation->quantity()->value());
+
+		$releasedEvent = new ReservationReleasedDomainEvent(
+			$this->id,
+			$this->productId->value(),
+			$reservation->orderId()->value(),
+			$reservationId->value(),
+			$reservation->quantity()->value(),
+			$this->onHand->value(),
+			$releasedCounter->value()
+		);
+
+		$this->reservations[$index] = $releasedReservation;
+		$this->reserved = $releasedCounter;
+
+		$this->record($releasedEvent);
 	}
 }

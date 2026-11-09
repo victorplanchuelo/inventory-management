@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace Tests\Unit\Inventory\Domain;
 
 use Manager\Inventory\Domain\Event\InitialStockRegisteredDomainEvent;
+use Manager\Inventory\Domain\Event\ReservationReleasedDomainEvent;
 use Manager\Inventory\Domain\Event\StockAddedDomainEvent;
 use Manager\Inventory\Domain\Event\StockReservedDomainEvent;
 use Manager\Inventory\Domain\Exception\InsufficientStockException;
 use Manager\Inventory\Domain\Exception\QuantityMustBePositiveException;
 use Manager\Inventory\Domain\Exception\ReservationAlreadyExistsException;
+use Manager\Inventory\Domain\Exception\ReservationAlreadyReleasedException;
+use Manager\Inventory\Domain\Exception\ReservationNotFoundException;
 use Manager\Inventory\Domain\StockItem;
 use Manager\Inventory\Domain\ValueObject\Quantity;
 use PHPUnit\Framework\Attributes\Test;
@@ -320,6 +323,179 @@ final class StockItemTest extends InventoryUnitTestCase
 				'reservedQuantity' => 15,
 				'onHand' => 30,
 				'reserved' => 15,
+			],
+			$events[0]->toPrimitives()
+		);
+	}
+
+	#[Test]
+	public function it_should_release_an_active_reservation(): void
+	{
+		$stockItem = StockItem::register(StockItemIdMother::create(), ProductIdMother::create(), new Quantity(25));
+		$stockItem->pullDomainEvents();
+		$orderId = OrderIdMother::create();
+		$reservationId = ReservationIdMother::create();
+
+		$stockItem->reserve($reservationId, $orderId, new Quantity(10));
+		$stockItem->releaseReservation($reservationId);
+
+		$reservations = $stockItem->reservations();
+		self::assertCount(1, $reservations);
+		self::assertTrue($reservations[0]->isReleased());
+		self::assertTrue($reservations[0]->id()->equals($reservationId));
+		self::assertTrue($reservations[0]->orderId()->equals($orderId));
+		self::assertSame(10, $reservations[0]->quantity()->value());
+		self::assertSame(25, $stockItem->onHand()->value());
+		self::assertSame(0, $stockItem->reserved()->value());
+		self::assertSame(25, $stockItem->available()->value());
+	}
+
+	#[Test]
+	public function it_should_decrease_reserved_by_the_released_quantity(): void
+	{
+		$stockItem = StockItem::register(StockItemIdMother::create(), ProductIdMother::create(), new Quantity(50));
+		$stockItem->pullDomainEvents();
+		$firstReservationId = ReservationIdMother::create();
+		$secondReservationId = ReservationIdMother::create();
+
+		$stockItem->reserve($firstReservationId, OrderIdMother::create(), new Quantity(20));
+		$stockItem->reserve($secondReservationId, OrderIdMother::create(), new Quantity(10));
+
+		$stockItem->releaseReservation($firstReservationId);
+
+		self::assertSame(10, $stockItem->reserved()->value());
+		self::assertSame(40, $stockItem->available()->value());
+		self::assertSame(50, $stockItem->onHand()->value());
+		self::assertCount(2, $stockItem->reservations());
+		self::assertTrue($stockItem->reservations()[0]->isReleased());
+		self::assertTrue($stockItem->reservations()[1]->isActive());
+	}
+
+	#[Test]
+	public function it_should_keep_the_sum_of_active_reservation_quantities_equal_to_reserved_after_releasing(): void
+	{
+		$stockItem = StockItem::register(StockItemIdMother::create(), ProductIdMother::create(), new Quantity(100));
+		$stockItem->pullDomainEvents();
+		$firstReservationId = ReservationIdMother::create();
+		$secondReservationId = ReservationIdMother::create();
+
+		$stockItem->reserve($firstReservationId, OrderIdMother::create(), new Quantity(20));
+		$stockItem->reserve($secondReservationId, OrderIdMother::create(), new Quantity(10));
+
+		$stockItem->releaseReservation($firstReservationId);
+
+		$activeReservationQuantities = 0;
+
+		foreach ($stockItem->reservations() as $reservation) {
+			if ($reservation->isActive()) {
+				$activeReservationQuantities += $reservation->quantity()->value();
+			}
+		}
+
+		self::assertSame(10, $activeReservationQuantities);
+		self::assertSame(10, $stockItem->reserved()->value());
+		self::assertSame($stockItem->onHand()->value() - $stockItem->reserved()->value(), $stockItem->available()->value());
+	}
+
+	#[Test]
+	public function it_should_preserve_the_aggregate_invariants_after_release(): void
+	{
+		$stockItem = StockItem::register(StockItemIdMother::create(), ProductIdMother::create(), new Quantity(25));
+		$stockItem->pullDomainEvents();
+		$firstReservationId = ReservationIdMother::create();
+		$secondReservationId = ReservationIdMother::create();
+
+		$stockItem->reserve($firstReservationId, OrderIdMother::create(), new Quantity(10));
+		$stockItem->reserve($secondReservationId, OrderIdMother::create(), new Quantity(5));
+
+		$stockItem->releaseReservation($firstReservationId);
+
+		self::assertTrue($firstReservationId->equals($stockItem->reservations()[0]->id()));
+		self::assertTrue($stockItem->reservations()[0]->isReleased());
+		self::assertTrue($stockItem->reservations()[1]->isActive());
+		self::assertSame(5, $stockItem->reservations()[1]->quantity()->value());
+		self::assertSame(5, $stockItem->reserved()->value());
+		self::assertSame(20, $stockItem->available()->value());
+		self::assertSame(25, $stockItem->onHand()->value());
+		self::assertSame($stockItem->onHand()->value() - $stockItem->reserved()->value(), $stockItem->available()->value());
+	}
+
+	#[Test]
+	public function it_should_leave_the_aggregate_unchanged_when_releasing_an_unknown_reservation(): void
+	{
+		$stockItem = StockItem::register(StockItemIdMother::create(), ProductIdMother::create(), new Quantity(25));
+		$stockItem->pullDomainEvents();
+
+		try {
+			$stockItem->releaseReservation(ReservationIdMother::create());
+
+			self::fail('A ReservationNotFoundException was expected.');
+		} catch (ReservationNotFoundException) {
+		}
+
+		self::assertSame(0, $stockItem->reserved()->value());
+		self::assertSame(25, $stockItem->available()->value());
+		self::assertCount(0, $stockItem->reservations());
+		self::assertCount(0, $stockItem->pullDomainEvents());
+	}
+
+	#[Test]
+	public function it_should_leave_the_aggregate_unchanged_when_releasing_an_already_released_reservation(): void
+	{
+		$stockItem = StockItem::register(StockItemIdMother::create(), ProductIdMother::create(), new Quantity(25));
+		$stockItem->pullDomainEvents();
+		$reservationId = ReservationIdMother::create();
+
+		$stockItem->reserve($reservationId, OrderIdMother::create(), new Quantity(10));
+		self::assertCount(1, $stockItem->pullDomainEvents());
+
+		$stockItem->releaseReservation($reservationId);
+		self::assertCount(1, $stockItem->pullDomainEvents());
+
+		try {
+			$stockItem->releaseReservation($reservationId);
+
+			self::fail('A ReservationAlreadyReleasedException was expected.');
+		} catch (ReservationAlreadyReleasedException) {
+		}
+
+		self::assertSame(0, $stockItem->reserved()->value());
+		self::assertSame(25, $stockItem->available()->value());
+		self::assertCount(1, $stockItem->reservations());
+		self::assertTrue($stockItem->reservations()[0]->isReleased());
+		self::assertCount(0, $stockItem->pullDomainEvents());
+	}
+
+	#[Test]
+	public function it_should_record_a_reservation_released_domain_event(): void
+	{
+		$stockItemId = StockItemIdMother::create();
+		$productId = ProductIdMother::create();
+		$orderId = OrderIdMother::create();
+		$reservationId = ReservationIdMother::create();
+		$stockItem = StockItem::register($stockItemId, $productId, new Quantity(30));
+		$stockItem->pullDomainEvents();
+
+		$stockItem->reserve($reservationId, $orderId, new Quantity(15));
+		$stockItem->pullDomainEvents();
+
+		$stockItem->releaseReservation($reservationId);
+
+		$events = $stockItem->pullDomainEvents();
+
+		self::assertCount(1, $events);
+		self::assertInstanceOf(ReservationReleasedDomainEvent::class, $events[0]);
+		self::assertSame(ReservationReleasedDomainEvent::eventName(), $events[0]::eventName());
+		self::assertSame($stockItemId->value(), $events[0]->aggregateId());
+		self::assertSame(
+			[
+				'stockItemId' => $stockItemId->value(),
+				'productId' => $productId->value(),
+				'orderId' => $orderId->value(),
+				'reservationId' => $reservationId->value(),
+				'releasedQuantity' => 15,
+				'onHand' => 30,
+				'reserved' => 0,
 			],
 			$events[0]->toPrimitives()
 		);

@@ -13,12 +13,12 @@ created_by:
 implemented_by:
   tool: "OpenCode"
   model:
-    name: "DeepSeek V4.1 Flash Free"
-    version: "4.1"
+    name: "GLM-5.3-Flash Free"
+    version: "5.3"
     reasoning_effort: "medium"
 
-last_implementation_at: "2026-11-09T21:30:40Z"
-has_completed_all_phases: "false"
+last_implementation_at: "2026-11-09T22:23:12Z"
+has_completed_all_phases: "true"
 ---
 
 # Inventory Domain and Application Foundation
@@ -413,15 +413,23 @@ All Inventory exceptions extend `Manager\Shared\Domain\DomainError`. Because `Do
   - Finds the reservation in the aggregate.
   - Throws `ReservationNotFoundException` when the reservation is not owned by the aggregate.
   - Throws `ReservationAlreadyReleasedException` when the reservation is already released.
-  - Replaces the active reservation with its released version, decreases `reserved` by the reservation quantity and records `ReservationReleasedDomainEvent`.
+  - Keeps the release atomic: it locates the reservation, calls `release()`, computes the released counter and constructs the `ReservationReleasedDomainEvent` before modifying any state; only after every fallible step succeeds does it replace the reservation, update `reserved` and record the event, so a validation failure leaves the aggregate untouched.
   - Preserves `0 <= reserved <= onHand` and the consistency between active reservation quantities and `reserved`.
 - `Manager\Inventory\Domain\Event\ReservationReleasedDomainEvent extends Manager\Shared\Domain\Bus\Event\DomainEvent`:
   - `eventName(): "inventory.reservation.released"`
   - `__construct(StockItemId $stockItemId, string $productId, string $orderId, string $reservationId, int $releasedQuantity, int $onHand, int $reserved, ?string $eventId = null, ?string $occurredOn = null)`
+  - The constructor is the single validation source and converts every primitive to its value object before storing it:
+    - `productId` through `ProductId`, `orderId` through `OrderId` and `reservationId` through `ReservationId`, so an invalid UUID throws `InvalidArgumentException`; all of them are stored as value objects.
+    - `releasedQuantity` through `Quantity`, so a negative value throws `InvalidQuantityException`; zero throws `QuantityMustBePositiveException`.
+    - `onHand` and `reserved` through `Quantity`, so negative values throw `InvalidQuantityException`.
+  - The constructor additionally enforces payload coherence, because `fromPrimitives()` can rebuild the event from external data (the same pattern as `StockReservedDomainEvent`):
+    - Throws `InvalidArgumentException` when `reserved` exceeds `onHand`.
+    - Throws `InvalidArgumentException` when `releasedQuantity` exceeds `onHand` minus `reserved`, i.e. the released quantity cannot exceed the available stock after the release.
+    - The aggregate always records coherent payloads, so these checks only reject corrupted external data on `fromPrimitives()`.
   - The constructor passes `$stockItemId->value()` to the base `DomainEvent`, so `aggregateId()` always equals `stockItemId->value()`.
   - The constructor stores the `StockItemId` in a readonly property so `toPrimitives()` can serialize it.
   - `fromPrimitives(string $aggregateId, array $body, string $eventId, string $occurredOn): self`
-  - `fromPrimitives()` validates the payload and builds the `StockItemId` from `aggregateId`.
+  - `fromPrimitives()` validates the payload shape and primitive types (`InvalidArgumentException`), builds the `StockItemId` from `aggregateId` and delegates every remaining validation to the constructor.
   - `toPrimitives(): array` with `stockItemId`, `productId`, `orderId`, `reservationId`, `releasedQuantity`, `onHand` and `reserved`.
   - `fromPrimitives()` throws `InvalidArgumentException` when `body['stockItemId']` does not match `aggregateId`.
 - `Manager\Inventory\Domain\Exception\ReservationNotFoundException extends Manager\Shared\Domain\DomainError`:
@@ -459,33 +467,45 @@ All Inventory exceptions extend `Manager\Shared\Domain\DomainError`. Because `Do
   - Preserves the aggregate invariants after release.
   - Records `ReservationReleasedDomainEvent` with the expected payload.
 - `Tests\Unit\Inventory\Domain\Event\ReservationReleasedDomainEventTest`:
-  - Reconstructs the event from primitives.
-  - Preserves the aggregate identifier and payload.
+  - Reconstructs the event from primitives, preserving the aggregate identifier, payload, event ID and occurrence date.
   - Guarantees that the constructor derives `aggregateId()` from `StockItemId`.
+  - Exposes the `inventory.reservation.released` event name.
   - Rejects a `stockItemId` that does not match `aggregateId` in `fromPrimitives()`.
+  - Rejects invalid `productId`, `orderId` and `reservationId` in the constructor and when reconstructing from primitives.
+  - Rejects zero and negative `releasedQuantity` in the constructor and when reconstructing from primitives, preserving the `QuantityMustBePositiveException` / `InvalidQuantityException` distinction.
+  - Rejects negative `onHand` and `reserved` values in the constructor and when reconstructing from primitives.
+  - Rejects incoherent payloads in the constructor and when reconstructing from primitives:
+    - `reserved` exceeding `onHand`.
+    - `releasedQuantity` exceeding the available stock.
+  - Rejects every payload field missing through a data provider.
+  - Rejects wrongly typed payload fields through a data provider covering both the `Uuid` fields (sent as integers) and the `Quantity` fields (sent as strings).
 - `Tests\Unit\Inventory\Application\ReleaseStock\ReleaseStockCommandHandlerTest`:
-  - Releases a reservation using only its `ReservationId`.
+  - Releases a reservation using only its `ReservationId`, verifying that the persisted aggregate keeps the released reservation with an empty counter.
   - Rejects an unknown reservation.
   - Rejects an already released reservation.
-  - Persists the owning aggregate through the repository port.
-- `Tests\Unit\Inventory\Domain\ObjectMother\StockItemMother` (modified to support released reservations).
+  - Propagates an invalid reservation identifier from the command input.
+  - Persists the owning aggregate through the repository port; `save` is not called on rejected flows.
+- `Tests\Unit\Inventory\Domain\ObjectMother\StockItemMother` (modified to support released reservations):
+  - `withActiveReservation()` registers an aggregate with exactly one active reservation, usable as fixture for the release use case.
+  - `withReleasedReservation()` registers an aggregate whose single reservation has already been released through the domain flow, keeping the released reservation and an empty reserved counter.
+  - Both fixture helpers pull every event generated by their setup steps, so the returned aggregate has no pending events and tests starting from them only observe the events raised by the operation under verification.
 
 **To-do actions:**
 
-- [ ] Add `ReservationNotFoundException` and `ReservationAlreadyReleasedException` with explicit constructors storing the `ReservationId`.
-- [ ] Implement `StockReservation::release()` returning a new released instance and rejecting repeated release.
-- [ ] Add `ReservationReleasedDomainEvent` with its event name, payload, primitive reconstruction and aggregate identifier derived from `StockItemId`.
-- [ ] Implement `StockItem::releaseReservation()` with ownership, status and counter updates.
-- [ ] Implement `ReleaseStockCommand` and `ReleaseStockCommandHandler` using `searchByReservationId` and `save`.
-- [ ] Extend the reservation and StockItem tests, add the ReservationReleased event test and the ReleaseStock handler test.
-- [ ] Extend the object mothers required by released reservations.
-- [ ] Run the full PHPUnit suite, including Unit, Integration and Api tests, and fix any failures.
-- [ ] Run ECS and PHPStan on the new and modified Inventory paths and fix any issues introduced by this task without adding baseline entries.
-- [ ] Verify the changes in terms of typechecking, linting and tests using the project's verification command. Fix issues if any.
-- [ ] STOP. Present the changes to the user for review and suggest commit messages. Do NOT proceed to any further work until the user explicitly asks.
+- [x] Add `ReservationNotFoundException` and `ReservationAlreadyReleasedException` with explicit constructors storing the `ReservationId`.
+- [x] Implement `StockReservation::release()` returning a new released instance and rejecting repeated release.
+- [x] Add `ReservationReleasedDomainEvent` with its event name, payload, primitive reconstruction and aggregate identifier derived from `StockItemId`.
+- [x] Implement `StockItem::releaseReservation()` with ownership, status and counter updates.
+- [x] Implement `ReleaseStockCommand` and `ReleaseStockCommandHandler` using `searchByReservationId` and `save`.
+- [x] Extend the reservation and StockItem tests, add the ReservationReleased event test and the ReleaseStock handler test.
+- [x] Extend the object mothers required by released reservations.
+- [x] Run the full PHPUnit suite, including Unit, Integration and Api tests, and fix any failures.
+- [x] Run ECS and PHPStan on the new and modified Inventory paths and fix any issues introduced by this task without adding baseline entries.
+- [x] Verify the changes in terms of typechecking, linting and tests using the project's verification command. Fix issues if any.
+- [x] STOP. Present the changes to the user for review and suggest commit messages. Do NOT proceed to any further work until the user explicitly asks.
 
 ## Next step
 
-Start Phase 4: release reservation with `StockReservation::release()`, `StockItem::releaseReservation()`, `ReservationReleasedDomainEvent` and the `ReleaseStock` use case.
+All phases are implemented. The Inventory foundation is complete: initial stock registration, stock addition, reservation and release, each with its domain event validation, unit tests and application use case. Persistence, Outbox publishing and cross-context integration will be addressed by follow-up tasks, not by this plan.
 
-Shelves are filling up and now the reserved boxes wait for their orders 📦 ↔ 🧾, ready to grow with 🐢 💨 (Turbotuga™, [Codely](https://codely.com)'s mascot).
+Every reservation finds its box, every box finds its order 📦 ➡️ 🚚, delivered with 🐢 💨 (Turbotuga™, [Codely](https://codely.com)'s mascot).

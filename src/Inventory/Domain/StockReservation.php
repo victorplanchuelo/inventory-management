@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Manager\Inventory\Domain;
 
 use Manager\Inventory\Domain\Exception\QuantityMustBePositiveException;
+use Manager\Inventory\Domain\Exception\ReservationAlreadyReleasedException;
 use Manager\Inventory\Domain\ValueObject\OrderId;
 use Manager\Inventory\Domain\ValueObject\Quantity;
 use Manager\Inventory\Domain\ValueObject\ReservationId;
@@ -56,5 +57,14 @@ final class StockReservation
 	public function isReleased(): bool
 	{
 		return $this->status === StockReservationStatus::Released;
+	}
+
+	public function release(): self
+	{
+		if ($this->isReleased()) {
+			throw new ReservationAlreadyReleasedException($this->id);
+		}
+
+		return new self($this->id, $this->orderId, $this->quantity, StockReservationStatus::Released);
 	}
 }

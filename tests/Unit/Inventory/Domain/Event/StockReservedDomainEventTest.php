@@ -482,21 +482,21 @@ final class StockReservedDomainEventTest extends \PHPUnit\Framework\TestCase
 		);
 	}
 
-    #[Test]
-    public function it_should_reject_an_invalid_product_id_in_the_constructor(): void
-    {
-        $this->expectException(InvalidArgumentException::class);
+	#[Test]
+	public function it_should_reject_an_invalid_product_id_in_the_constructor(): void
+	{
+		$this->expectException(InvalidArgumentException::class);
 
-        new StockReservedDomainEvent(
-            StockItemIdMother::create(),
-            'not-a-uuid',
-            OrderIdMother::create()->value(),
-            ReservationIdMother::create()->value(),
-            5,
-            100,
-            5
-        );
-    }
+		new StockReservedDomainEvent(
+			StockItemIdMother::create(),
+			'not-a-uuid',
+			OrderIdMother::create()->value(),
+			ReservationIdMother::create()->value(),
+			5,
+			100,
+			5
+		);
+	}
 
 	public static function payloadFields(): iterable
 	{
