@@ -17,7 +17,7 @@ implemented_by:
     version: "4.1"
     reasoning_effort: "medium"
 
-last_implementation_at: "2026-11-08T18:25:17Z"
+last_implementation_at: "2026-11-09T21:30:40Z"
 has_completed_all_phases: "false"
 ---
 
@@ -274,7 +274,7 @@ All Inventory exceptions extend `Manager\Shared\Domain\DomainError`. Because `Do
 
 **Public contracts:**
 
-- `Manager\Inventory\Domain\ValueObject\ReservationStatus` enum:
+- `Manager\Inventory\Domain\ValueObject\StockReservationStatus` enum:
   - `Active`
   - `Released`
 - `Manager\Inventory\Domain\StockReservation`:
@@ -282,29 +282,36 @@ All Inventory exceptions extend `Manager\Shared\Domain\DomainError`. Because `Do
   - `public function id(): ReservationId`
   - `public function orderId(): OrderId`
   - `public function quantity(): Quantity`
-  - `public function status(): ReservationStatus`
+  - `public function status(): StockReservationStatus`
   - `public function isActive(): bool`
   - `public function isReleased(): bool`
   - `create()` rejects zero quantities with `QuantityMustBePositiveException`. Negative values cannot reach this method because `Quantity` rejects them during construction.
-  - The entity is immutable from the caller's perspective and belongs to the `StockItem` aggregate.
+  - Every property, including `quantity`, is declared `readonly`: the entity is immutable from the caller's perspective and belongs to the `StockItem` aggregate.
 - `Manager\Inventory\Domain\StockItem`:
   - `public function reserve(ReservationId $reservationId, OrderId $orderId, Quantity $quantity): void`
   - `public function reservations(): array` annotated with `/** @return list<StockReservation> */`
   - `reserve()` rejects zero quantities with `QuantityMustBePositiveException`. Negative values cannot reach this method because `Quantity` rejects them during construction.
-  - `reserve()` throws `ReservationAlreadyExistsException` when a reservation with the same `ReservationId` already exists in the aggregate, regardless of its status.
-  - `reserve()` throws `InsufficientStockException` when the requested quantity exceeds `available()`.
-  - `reserve()` creates an active `StockReservation`, adds it to the aggregate, increases `reserved` and records `StockReservedDomainEvent`.
-  - `reservations()` returns a copy of the internal list and does not expose a mutable collection.
+  - `reserve()` throws `ReservationAlreadyExistsException` when a reservation with the same `ReservationId` already exists in the aggregate, regardless of its status. The comparison uses the `Uuid::equals()` method.
+  - `reserve()` throws `InsufficientStockException` when the requested quantity exceeds `available()`. The comparison uses `Quantity::isBiggerThan()` with the requested quantity as receiver.
+  - `reserve()` creates an active `StockReservation`, adds it to the aggregate, increases `reserved` and records `StockReservedDomainEvent`. The entity is created only after the availability check rejects duplicates and insufficiency.
+  - `reservations()` returns the internal list as-is; copying adds no protection because PHP `array` assignment already copies by value on write.
   - No one-reservation-per-`OrderId` rule is introduced. Multiple reservations for the same order are not prohibited by this task.
 - `Manager\Inventory\Domain\Event\StockReservedDomainEvent extends Manager\Shared\Domain\Bus\Event\DomainEvent`:
   - `eventName(): "inventory.stock.reserved"`
   - `__construct(StockItemId $stockItemId, string $productId, string $orderId, string $reservationId, int $reservedQuantity, int $onHand, int $reserved, ?string $eventId = null, ?string $occurredOn = null)`
+  - The constructor is the single validation source and converts every primitive to its value object before storing it:
+    - `productId` through `ProductId`, so an invalid UUID throws `InvalidArgumentException`.
+    - `orderId` through `OrderId` and `reservationId` through `ReservationId`, so an invalid UUID throws `InvalidArgumentException`; both are stored as value objects.
+    - `reservedQuantity` through `Quantity`, so a negative value throws `InvalidQuantityException`; zero throws `QuantityMustBePositiveException`.
+    - `onHand` and `reserved` through `Quantity`, so negative values throw `InvalidQuantityException`.
+  - The constructor additionally enforces payload coherence, because `fromPrimitives()` can rebuild the event from external data:
+    - Throws `InvalidArgumentException` when `reserved` exceeds `onHand`.
+    - Throws `InvalidArgumentException` when `reservedQuantity` exceeds `reserved`.
+    - The aggregate always records coherent payloads, so these checks only reject corrupted external data on `fromPrimitives()`.
   - The constructor passes `$stockItemId->value()` to the base `DomainEvent`, so `aggregateId()` always equals `stockItemId->value()`.
-  - The constructor stores the `StockItemId` in a readonly property so `toPrimitives()` can serialize it.
   - `fromPrimitives(string $aggregateId, array $body, string $eventId, string $occurredOn): self`
-  - `fromPrimitives()` validates the payload and builds the `StockItemId` from `aggregateId`.
+  - `fromPrimitives()` validates the payload shape and primitive types, requires `body['stockItemId']` to match `aggregateId` and delegates all value validation to the constructor.
   - `toPrimitives(): array` with `stockItemId`, `productId`, `orderId`, `reservationId`, `reservedQuantity`, `onHand` and `reserved`.
-  - `fromPrimitives()` throws `InvalidArgumentException` when `body['stockItemId']` does not match `aggregateId`.
 - `Manager\Inventory\Domain\Exception\InsufficientStockException extends Manager\Shared\Domain\DomainError`:
   - `__construct(ProductId $productId, Quantity $requested, Quantity $available)`
   - Stores the `ProductId`, requested quantity and available quantity before calling `parent::__construct()`.
@@ -343,42 +350,52 @@ All Inventory exceptions extend `Manager\Shared\Domain\DomainError`. Because `Do
   - Rejects a reservation exceeding available stock.
   - Updates `reserved` and `available` correctly.
   - Keeps the sum of active reservation quantities equal to `reserved`.
-  - Returns a list copy from `reservations()`.
+  - Returns the internal list from `reservations()`; the test proves mutating the returned value does not leak into the aggregate.
+  - Reserves exactly all available stock, leaving `available()` at zero.
+  - Leaves the aggregate unchanged after a rejected reservation: counter, collection and pending events stay intact for duplicate and insufficient-stock errors.
   - Records `StockReservedDomainEvent` with the expected payload.
 - `Tests\Unit\Inventory\Domain\Event\StockReservedDomainEventTest`:
-  - Reconstructs the event from primitives.
-  - Preserves the aggregate identifier and payload.
   - Guarantees that the constructor derives `aggregateId()` from `StockItemId`.
+  - Reconstructs the event from primitives preserving the aggregate identifier, payload, event ID and occurrence date.
   - Rejects a `stockItemId` that does not match `aggregateId` in `fromPrimitives()`.
+  - Rejects invalid `productId`, `orderId` and `reservationId` in the constructor and when reconstructing from primitives.
+  - Rejects zero and negative `reservedQuantity` in the constructor and when reconstructing from primitives, preserving the `QuantityMustBePositiveException` / `InvalidQuantityException` distinction.
+  - Rejects negative `onHand` and `reserved` values in the constructor and when reconstructing from primitives.
+  - Rejects incoherent payloads in the constructor and when reconstructing from primitives:
+    - `reserved` exceeding `onHand`.
+    - `reservedQuantity` exceeding `reserved`.
+  - Rejects every payload field missing through a data provider.
+  - Rejects wrongly typed payload fields through a data provider covering both the `Uuid` fields (sent as integers) and the `Quantity` fields (sent as strings).
 - `Tests\Unit\Inventory\Application\ReserveStock\ReserveStockCommandHandlerTest`:
-  - Reserves stock for an existing `StockItem`.
-  - Rejects an unknown `ProductId`.
-  - Rejects insufficient stock through the domain behavior.
+  - Reserves stock for an existing `StockItem` and persists the updated aggregate.
+  - Rejects an unknown `ProductId` with `StockItemNotFoundException` without saving.
+  - Rejects insufficient stock through the domain behavior without saving.
   - Propagates quantity errors from the integer command input:
-    - Zero reaches `StockItem::reserve()` and throws `QuantityMustBePositiveException`.
-    - A negative value fails `Quantity` construction with `InvalidQuantityException`.
+    - Zero reaches `StockItem::reserve()` and throws `QuantityMustBePositiveException` without saving.
+    - A negative value fails `Quantity` construction with `InvalidQuantityException` before searching or generating the reservation identifier.
   - Generates a `ReservationId` through `UuidGenerator`.
-  - Persists the aggregate through the repository port.
+  - Persists the aggregate containing the generated `ReservationId` and the `OrderId` received from the command.
 - `Tests\Unit\Inventory\Domain\ObjectMother\ReservationIdMother`
 - `Tests\Unit\Inventory\Domain\ObjectMother\OrderIdMother`
 - `Tests\Unit\Inventory\Domain\ObjectMother\StockReservationMother`
-- `Tests\Unit\Inventory\Domain\ObjectMother\StockItemMother` (modified to support reservations).
+- `Tests\Unit\Inventory\Domain\ObjectMother\StockItemMother` needs no change because reservations are recorded through `StockItem::reserve()` on an already registered item.
+- `Tests\Unit\Inventory\InventoryUnitTestCase` reuses the generic typed Mockery helpers, backed by `Tests\Unit\Inventory\MockeryExpectation`, for the `ReserveStockCommandHandler` test.
 
 **To-do actions:**
 
-- [ ] Add the `ReservationStatus` enum and the immutable `StockReservation` entity with its creation and accessor methods.
-- [ ] Add `InsufficientStockException` with an explicit constructor storing the `ProductId`, requested quantity and available quantity.
-- [ ] Add `ReservationAlreadyExistsException` with an explicit constructor storing the duplicate `ReservationId`.
-- [ ] Add `StockReservedDomainEvent` with its event name, payload, primitive reconstruction and aggregate identifier derived from `StockItemId`.
-- [ ] Implement `StockItem::reserve()` with zero-quantity validation, `ReservationId` uniqueness inside the aggregate, availability checks and event recording.
-- [ ] Implement the `reservations()` accessor with the `list<StockReservation>` annotation and a copy of the internal list.
-- [ ] Implement `ReserveStockCommand` and `ReserveStockCommandHandler` using the repository port and `UuidGenerator`.
-- [ ] Add the reservation entity tests, extend the StockItem tests, add the StockReserved event test and the ReserveStock handler test. Keep negative-quantity coverage in `QuantityTest` and command-input tests; aggregate tests cover zero.
-- [ ] Add the object mothers required by reservations and extend the StockItem mother.
-- [ ] Run `vendor/bin/phpunit --testsuite=Unit` and fix any failures.
-- [ ] Run ECS and PHPStan on the new and modified Inventory paths and fix any issues introduced by this phase without adding baseline entries.
-- [ ] Verify the changes in terms of typechecking, linting and tests using the project's verification command. Fix issues if any.
-- [ ] STOP. Present the changes to the user for review and suggest commit messages. Do NOT proceed to the next phase until the user explicitly asks.
+- [x] Add the `StockReservationStatus` enum and the immutable `StockReservation` entity with its creation and accessor methods.
+- [x] Add `InsufficientStockException` with an explicit constructor storing the `ProductId`, requested quantity and available quantity.
+- [x] Add `ReservationAlreadyExistsException` with an explicit constructor storing the duplicate `ReservationId`.
+- [x] Add `StockReservedDomainEvent` with its event name, payload, primitive reconstruction and aggregate identifier derived from `StockItemId`.
+- [x] Implement `StockItem::reserve()` with zero-quantity validation, `ReservationId` uniqueness inside the aggregate, availability checks and event recording.
+- [x] Implement the `reservations()` accessor with the `list<StockReservation>` annotation, returning the internal list directly and relying on PHP copy-on-write array semantics.
+- [x] Implement `ReserveStockCommand` and `ReserveStockCommandHandler` using the repository port and `UuidGenerator`.
+- [x] Add the reservation entity tests, extend the StockItem tests, add the StockReserved event test and the ReserveStock handler test. Keep negative-quantity coverage in `QuantityTest` and command-input tests; aggregate tests cover zero.
+- [x] Add the object mothers required by reservations; `StockItemMother` needed no change because reservations are recorded through `StockItem::reserve()` on an already registered item, which the plan states below.
+- [x] Run `vendor/bin/phpunit --testsuite=Unit` and fix any failures.
+- [x] Run ECS and PHPStan on the new and modified Inventory paths and fix any issues introduced by this phase without adding baseline entries.
+- [x] Verify the changes in terms of typechecking, linting and tests using the project's verification command. Fix issues if any.
+- [x] STOP. Present the changes to the user for review and suggest commit messages. Do NOT proceed to the next phase until the user explicitly asks.
 
 ### Phase 4: Release reservation
 
@@ -388,9 +405,9 @@ All Inventory exceptions extend `Manager\Shared\Domain\DomainError`. Because `Do
 
 - `Manager\Inventory\Domain\StockReservation`:
   - `public function release(): self`
-  - Returns a new reservation instance with `ReservationStatus::Released`.
+  - Returns a new reservation instance with `StockReservationStatus::Released`.
   - Throws `ReservationAlreadyReleasedException` when the reservation is already released.
-  - The original instance remains unchanged.
+  - The entity stays immutable: `release()` never mutates the original instance and the aggregate must replace the active reservation with the returned instance instead of changing the released one in place.
 - `Manager\Inventory\Domain\StockItem`:
   - `public function releaseReservation(ReservationId $reservationId): void`
   - Finds the reservation in the aggregate.
@@ -469,6 +486,6 @@ All Inventory exceptions extend `Manager\Shared\Domain\DomainError`. Because `Do
 
 ## Next step
 
-Start Phase 3: stock reservation with `StockReservation`, the reservation operation, `StockReservedDomainEvent` and the `ReserveStock` use case.
+Start Phase 4: release reservation with `StockReservation::release()`, `StockItem::releaseReservation()`, `ReservationReleasedDomainEvent` and the `ReleaseStock` use case.
 
-The first inventory seeds are planted 🌱 and now the shelves start filling with boxes 📦, ready to grow with 🐢 💨 (Turbotuga™, [Codely](https://codely.com)'s mascot).
+Shelves are filling up and now the reserved boxes wait for their orders 📦 ↔ 🧾, ready to grow with 🐢 💨 (Turbotuga™, [Codely](https://codely.com)'s mascot).
