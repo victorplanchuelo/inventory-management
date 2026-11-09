@@ -17,7 +17,7 @@ implemented_by:
     version: "5.3"
     reasoning_effort: "medium"
 
-last_implementation_at: "2026-11-09T22:23:12Z"
+last_implementation_at: "2026-11-09T22:33:25Z"
 has_completed_all_phases: "true"
 ---
 
@@ -293,7 +293,7 @@ All Inventory exceptions extend `Manager\Shared\Domain\DomainError`. Because `Do
   - `reserve()` rejects zero quantities with `QuantityMustBePositiveException`. Negative values cannot reach this method because `Quantity` rejects them during construction.
   - `reserve()` throws `ReservationAlreadyExistsException` when a reservation with the same `ReservationId` already exists in the aggregate, regardless of its status. The comparison uses the `Uuid::equals()` method.
   - `reserve()` throws `InsufficientStockException` when the requested quantity exceeds `available()`. The comparison uses `Quantity::isBiggerThan()` with the requested quantity as receiver.
-  - `reserve()` creates an active `StockReservation`, adds it to the aggregate, increases `reserved` and records `StockReservedDomainEvent`. The entity is created only after the availability check rejects duplicates and insufficiency.
+  - `reserve()` keeps the reservation atomic: it creates the active `StockReservation`, computes the incremented reserved counter and constructs the `StockReservedDomainEvent` before modifying any state, after the duplicate and availability checks reject invalid inputs; only then it appends the reservation, updates `reserved` and records the event, so a failed validation leaves the aggregate untouched.
   - `reservations()` returns the internal list as-is; copying adds no protection because PHP `array` assignment already copies by value on write.
   - No one-reservation-per-`OrderId` rule is introduced. Multiple reservations for the same order are not prohibited by this task.
 - `Manager\Inventory\Domain\Event\StockReservedDomainEvent extends Manager\Shared\Domain\Bus\Event\DomainEvent`:

@@ -114,21 +114,22 @@ final class StockItem extends AggregateRoot
 		}
 
 		$reservation = StockReservation::create($reservationId, $orderId, $quantity);
+		$reserved = new Quantity($this->reserved->value() + $quantity->value());
+
+		$event = new StockReservedDomainEvent(
+			$this->id,
+			$this->productId->value(),
+			$orderId->value(),
+			$reservationId->value(),
+			$quantity->value(),
+			$this->onHand->value(),
+			$reserved->value()
+		);
 
 		$this->reservations[] = $reservation;
-		$this->reserved = new Quantity($this->reserved->value() + $quantity->value());
+		$this->reserved = $reserved;
 
-		$this->record(
-			new StockReservedDomainEvent(
-				$this->id,
-				$this->productId->value(),
-				$orderId->value(),
-				$reservationId->value(),
-				$quantity->value(),
-				$this->onHand->value(),
-				$this->reserved->value()
-			)
-		);
+		$this->record($event);
 	}
 
 	public function releaseReservation(ReservationId $reservationId): void
