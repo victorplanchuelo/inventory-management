@@ -83,7 +83,7 @@ Define:
 - `docs/tasks/004-inbox-idempotent-consumers-and-event-ordering.md`
 - `docs/tasks/005-orders-inventory-availability-projection.md`
 - `docs/adr/003-outbox-rabbitmq.md`
-- `docs/adr/004-inbox-idempotent-consumers.md`
+- `docs/adr/004-integration-events-and-cross-context-communication.md`
 
 **Resolution trigger:**
 
@@ -117,6 +117,7 @@ Determine:
 - `docs/tasks/003-transactional-outbox-and-integration-infrastructure.md`
 - `docs/tasks/006-inventory-persistence-and-stock-reservation.md` (if retained as a future task specification)
 - `docs/adr/003-outbox-rabbitmq.md`
+- `docs/adr/004-integration-events-and-cross-context-communication.md`
 
 **Resolution trigger:**
 

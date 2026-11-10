@@ -185,8 +185,9 @@ The proposed fields are:
 | `published_at` | Successful publication timestamp, nullable |
 | `attempts` | Number of publication attempts |
 | `next_attempt_at` | Earliest time for the next attempt, nullable |
-| `locked_at` | Time at which a publisher claimed the record, nullable |
-| `locked_by` | Publisher identifier or unique claim token, nullable |
+| `locked_at` | Timestamp indicating when the message was claimed, nullable |
+| `claim_token` | Unique token generated for each claim attempt. It is used to verify ownership when updating the message after publication or failure, nullable |
+| `publisher_id` | Stable identifier of the publisher instance or process, used for operational diagnostics. It must not be used as a substitute for the claim token, nullable |
 | `last_error` | Last publication error, nullable |
 | `status` | Publication state |
 | `failed_at` | Time at which the record entered a terminal failure state, nullable |
@@ -247,6 +248,14 @@ The implementation must define:
 Claim ownership must use a unique claim token or equivalent fencing mechanism. A stable publisher process identifier alone is not sufficient to prevent a previous claim owner from updating a record after its claim has expired and been reassigned.
 
 Every state-changing update after a claim must be conditional on the current claim ownership.
+
+Every claim attempt must generate a new unique `claim_token`, including when the same publisher instance reclaims a message.
+
+The publisher must retain the `claim_token` associated with its current claim.
+
+Updates that mark a message as published, schedule a retry or transition it to terminal failure must be conditional on the stored `claim_token` matching the publisher's current token.
+
+The `publisher_id` identifies the publisher instance for operational diagnostics only. It must not be used to establish claim ownership.
 
 If a claim has expired or been reassigned, the previous owner must not be able to mark the record as published, schedule a retry, or otherwise overwrite the current owner's state.
 

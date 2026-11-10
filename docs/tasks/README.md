@@ -19,7 +19,7 @@ The table describes the documents currently present. It is not a commitment to e
 
 **Current implementation focus:** Task 003 — Transactional Outbox and Integration Infrastructure
 
-Task 001 and 002 have been implemented and verified. Task 003 is the current task for documentation updates and planning.
+Tasks 001 and 002 have been implemented and verified. Task 003 is the current task for documentation updates and planning.
 
 Future capabilities must not be treated as current implementation scope merely because they appear in requirements, ADRs or proposed task documents.
 
