@@ -3,6 +3,15 @@ name: "transactional-outbox-integration-infrastructure"
 description: "Implement shared Transactional Outbox and RabbitMQ integration-event publication infrastructure with atomic persistence, claim fencing, deterministic serialization, retries and operational tooling."
 created_at: "2026-11-10"
 status: "Proposed"
+implemented_by:
+  tool: "OpenCode"
+  model:
+    name: "DeepSeek V4.1 Flash Free"
+    version: "4.1"
+    reasoning_effort: "medium"
+
+last_implementation_at: "2026-11-10T20:40:15Z"
+has_completed_all_phases: false
 ---
 
 # Transactional Outbox and Integration Infrastructure
@@ -130,22 +139,24 @@ If supported by the project's MySQL version and migration conventions, add a dat
 
 Application-level validation remains mandatory even if a database constraint is present.
 
+The `CHECK` constraint requires MySQL 8.0.16 or newer, where `CHECK` constraints are enforced. The project Docker image currently runs MySQL 8.0.32; verify the server version before relying on the constraint in another environment.
+
 ### 3.6 Same-connection transaction guarantee
 
 `MySqlTransactionalSession` and `MySqlOutboxRecorder` must receive the same connection object through constructor injection.
 
-A single container factory or service-provider binding must resolve that connection and inject the identical object into both adapters.
+The Outbox must not expose an independent database connection configuration. A single container factory or service-provider binding must resolve the application's default connection and inject the identical object into both adapters. Business repositories and the Outbox writer must therefore share the same underlying connection.
 
 Requirements:
 
 - No hidden `DB::connection()` lookup inside either adapter.
-- No fallback to a separately resolved default connection.
+- No `outbox.connection` setting and no fallback to an independently resolved connection.
 - `MySqlTransactionalSession` opens and completes the transaction using the injected connection.
 - `MySqlOutboxRecorder` writes using that same injected connection.
 - The recorder never opens, commits or rolls back its own transaction.
 - The Outbox write participates in the transaction opened by `TransactionalSession`.
 
-The integration test must assert connection object identity and verify commit and rollback behaviour.
+The integration test must assert connection object identity even when a stale `outbox.connection` configuration value is injected, and verify commit and rollback behaviour.
 
 This abstraction does not integrate Inventory in Task003. Context-specific integration remains part of Task006.
 
@@ -454,6 +465,8 @@ Validation:
 - Valid UUID aggregate ID.
 - Non-empty event and aggregate names.
 - Valid event version.
+- Maximum lengths aligned with the persistence schema: `producer` 64 characters, `event_name` 255, `aggregate_type` 255, `correlation_id` 255, `causation_id` 255 and `event_version` 32.
+- Length limits are counted in characters, not bytes, to match MySQL `VARCHAR` semantics.
 - Valid JSON payload text.
 - Optional values validated when present.
 - No dependency on Laravel configuration.
@@ -511,6 +524,15 @@ Columns:
 - `status`: default `pending`.
 - `failed_at`: nullable.
 
+Store every Outbox date-time column (`occurred_at`, `created_at`, `published_at`, `next_attempt_at`, `locked_at` and `failed_at`) as MySQL `DATETIME`, not `TIMESTAMP`.
+
+The convention is explicit UTC wall-clock time:
+
+- The recorder formats values in UTC before writing them.
+- MySQL `DATETIME` performs no session-timezone conversion.
+- Readers interpret the stored values as UTC.
+- Integration tests must verify UTC persistence while the MySQL session timezone is not UTC.
+
 Indexes:
 
 - Unique index on `event_id`.
@@ -541,6 +563,8 @@ Unit:
 
 - Valid and invalid UUIDs.
 - Empty event or aggregate names.
+- Maximum lengths for every schema-bounded string field.
+- Length limits counted in characters rather than bytes.
 - Invalid JSON payload.
 - Nested JSON objects and arrays.
 - Unicode and numeric JSON values.
@@ -552,30 +576,39 @@ Integration:
 
 Use a demo business table created by the test itself.
 
+Each test must isolate its Outbox records by `event_id` and clean up only the records it created. Do not truncate or delete every row from shared tables.
+
 Verify:
 
 1. The session and recorder use the identical connection object.
-2. Business row and Outbox row both persist on commit.
-3. A business exception inside `execute()` rolls back both writes.
-4. A failure during the transaction leaves neither write persisted.
-5. The recorder does not open or commit its own transaction.
-6. The persisted payload text is identical to the validated input text.
-7. No publication or external broker artefact is created by a rolled-back transaction.
+2. An injected `outbox.connection` configuration cannot redirect the adapters away from the default connection.
+3. Business row and Outbox row both persist on commit.
+4. A business exception inside `execute()` rolls back both writes.
+5. A failure during the transaction leaves neither write persisted.
+6. The recorder does not open or commit its own transaction.
+7. The persisted payload text is identical to the validated input text.
+8. UTC wall-clock values are preserved when the MySQL session timezone is not UTC.
+9. No publication or external broker artefact is created by a rolled-back transaction.
 
 ### Phase 1 completion checklist
 
-- [ ] Create `config/outbox.php` with producer allowlist and initial publisher settings.
-- [ ] Create the Outbox migration and indexes.
-- [ ] Create `OutboxMessage`, `OutboxStatus`, `OutboxRecorder` and `TransactionalSession`.
-- [ ] Create producer validation and shared connection wiring.
-- [ ] Create `MySqlTransactionalSession` and `MySqlOutboxRecorder`.
-- [ ] Add unit tests for contracts and validation.
-- [ ] Add real MySQL integration tests for connection identity, commit and rollback.
-- [ ] Verify the payload text is preserved.
-- [ ] Run PHPUnit, ECS and PHPStan using project commands inside Sail.
-- [ ] Do not extend the PHPStan baseline.
-- [ ] STOP and present the full diff and verification results for review.
-- [ ] Do not proceed to Phase 2 until the user explicitly asks.
+- [x] Create `config/outbox.php` with producer allowlist and initial publisher settings.
+- [x] Create the Outbox migration and indexes.
+- [x] Create `OutboxMessage`, `OutboxStatus`, `OutboxRecorder` and `TransactionalSession`.
+- [x] Create producer validation and shared connection wiring.
+- [x] Create `MySqlTransactionalSession` and `MySqlOutboxRecorder`.
+- [x] Eliminate independent Outbox connection configuration and assert default connection identity.
+- [x] Store Outbox date-times as UTC `DATETIME` and verify with a non-UTC MySQL session timezone.
+- [x] Isolate integration test records by `event_id` and clean only those records.
+- [x] Enforce schema-aligned maximum lengths in the Application DTO.
+- [x] Verify `created_at` UTC persistence under a non-UTC MySQL session timezone.
+- [x] Add unit tests for contracts and validation.
+- [x] Add real MySQL integration tests for connection identity, commit and rollback.
+- [x] Verify the payload text is preserved.
+- [x] Run PHPUnit, ECS and PHPStan using project commands inside Sail.
+- [x] Do not extend the PHPStan baseline.
+- [x] STOP and present the full diff and verification results for review.
+- [x] Do not proceed to Phase 2 until the user explicitly asks.
 
 ## 6. Phase 2 — Claim fencing, deterministic envelope and confirmed RabbitMQ publication
 
@@ -1044,8 +1077,10 @@ Task003 can be marked Verified only when all applicable criteria below have been
 
 ## 11. Next step
 
-Start with Phase 1 using the local `codely-phase-implement` workflow.
+Phase 1 is implemented and verified. Phase 2 — Claim fencing, deterministic envelope and confirmed RabbitMQ publication — is next.
 
-Implement only the Outbox schema, Application contracts, same-connection transactional write and Phase 1 tests.
+Implement only the Outbox claim repository, deterministic envelope serializer, confirmed RabbitMQ publisher, publish command and Phase 2 tests.
 
-After completing Phase 1, stop and present the complete diff, test output, ECS and PHPStan results for review. Do not continue automatically to Phase 2.
+After completing Phase 2, stop and present the complete diff, test output, ECS and PHPStan results for review. Do not continue automatically to Phase 3 until the user explicitly asks.
+
+Phase 1 foundations landed with [Codely](https://codely.com) AI tooling. 🧱
