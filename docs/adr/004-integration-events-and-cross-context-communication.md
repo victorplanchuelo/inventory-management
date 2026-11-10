@@ -1,6 +1,6 @@
 # ADR 004 — Integration Events and Cross-Context Communication
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-07
 
 ## Context
@@ -34,7 +34,9 @@ Each bounded context owns:
 
 A context must not depend on another context's domain classes, repositories, ORM models or database tables.
 
-The existing RabbitMQ and Symfony Messenger infrastructure is used as the transport mechanism, following ADR 003.
+The existing RabbitMQ infrastructure based on PHP `ext-amqp` is used as the transport mechanism, following ADR 003.
+
+Symfony Messenger may be used for other application messaging purposes, but it is not the RabbitMQ transport selected by this decision.
 
 ### Integration Event Envelope
 
@@ -58,9 +60,11 @@ The envelope must be independent of Laravel, Eloquent, Symfony Messenger and Rab
 
 The `aggregateId` must not assume that all bounded contexts use integer identifiers.
 
-The `aggregateVersion` must be monotonically increasing for each aggregate whose producer guarantees versioning. Producers must persist and publish the corresponding version consistently with the business change.
+The `aggregateVersion` is optional and may be provided by producers that support aggregate versioning.
 
-Consumers must not assume that every producer already supports aggregate versioning.
+When provided, it must be monotonically increasing for the originating aggregate and persisted consistently with the corresponding business change.
+
+Consumers must not assume that every producer supports aggregate versioning. The semantics and ordering guarantees of aggregate versions must be explicitly defined before a producer relies on them.
 
 ### Event Naming
 
@@ -85,6 +89,12 @@ Candidate event names include:
 These names are initial candidates. The final event catalogue must be aligned with the approved use cases and domain language before implementation.
 
 Events must communicate business facts, not transport commands or requests for another context to execute an action.
+
+The candidate integration event names do not imply a one-to-one mapping with internal domain events.
+
+Each producer must explicitly define and document which domain events or application outcomes result in published integration events.
+
+The mapping must be approved before implementing the corresponding producer integration.
 
 ### Event Contract Ownership
 
@@ -207,6 +217,22 @@ Inventory remains responsible for physical stock and reservation rules.
 Catalog, if included in the approved scope, remains responsible for product information.
 
 Integration events communicate facts between these contexts without transferring ownership of their models.
+
+### Synchronous Cross-Context Operations
+
+Integration events are used to communicate business facts asynchronously. They must not replace synchronous operations when a business use case requires an immediate result from another bounded context.
+
+When order confirmation requires stock reservation, Orders must request the reservation through an explicit public application contract exposed by Inventory.
+
+The contract must return an explicit outcome indicating whether the reservation succeeded or failed, without exposing Inventory's internal domain or persistence models.
+
+Inventory remains responsible for validating stock availability and executing the reservation.
+
+Orders must not access Inventory repositories, aggregates, ORM models or persistence structures directly.
+
+An order must never transition to Confirmed unless all required stock reservations have succeeded.
+
+The coordination between the Orders and Inventory transactions, including failure handling, retries, idempotency and compensation, must follow the dedicated cross-context coordination decision.
 
 ## Candidate Integration Flows
 

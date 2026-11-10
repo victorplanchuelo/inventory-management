@@ -1,6 +1,6 @@
-# Task 01 — Inventory Domain and Application Foundation
+# Task 001 — Inventory Domain and Application Foundation
 
-**Status:** Proposed  
+**Status:** Verified  
 **Bounded Context:** Inventory  
 **Phase:** Domain and Application Foundation
 
@@ -362,8 +362,8 @@ The following findings were verified during the initial Research phase, before i
 
 ### Existing Inventory Context
 
-- No `src/Inventory` bounded context currently exists.
-- Inventory Domain and Application classes must be introduced as a new bounded context.
+- No `src/Inventory` bounded context existed at the time of the initial research.
+- The Inventory Domain and Application classes had to be introduced as a new bounded context.
 - The existing `src/Api/User` context is a historical reference, not an implementation template. Its framework coupling and other documented limitations must not be reproduced.
 
 ### Shared UUID Abstractions
@@ -436,29 +436,29 @@ The following design decisions have been agreed for the stock reservation model 
 
 ## 12. Acceptance Criteria
 
-- [ ] The Inventory bounded context has a domain model independent of Laravel and infrastructure.
-- [ ] `StockItem` is the aggregate root for one `ProductId`.
-- [ ] Exactly one StockItem per ProductId is the initial Inventory rule.
-- [ ] Inventory identifiers use UUIDs and preserve type distinction.
-- [ ] `ProductId` is treated as an external reference.
-- [ ] `StockReservation` is an entity owned by `StockItem`.
-- [ ] `Quantity` rejects negative values and permits zero.
-- [ ] Operations that register, add or reserve stock require a positive quantity.
-- [ ] The aggregate maintains `0 <= reserved <= onHand`.
-- [ ] Available stock is derived from `onHand - reserved`.
-- [ ] Active reservation quantities remain consistent with the reserved counter.
-- [ ] Stock reservations cannot exceed available stock.
-- [ ] A reservation can only be released once.
-- [ ] The Inventory repository port is defined in the Domain.
-- [ ] Reservation lookup returns the owning StockItem aggregate.
-- [ ] Application use cases coordinate operations through domain behavior and repository ports.
-- [ ] Relevant domain events use the shared UUID-compatible event contract, if recorded.
-- [ ] Unit tests cover the relevant domain rules and application behavior.
-- [ ] No persistence, API, RabbitMQ, Outbox, Inbox, projection or Orders implementation is introduced.
-- [ ] No warehouse or location management is introduced.
-- [ ] No unrelated Shared or User refactoring is introduced.
-- [ ] Reservation status is represented by a dedicated `StockReservationStatus` enum with `Active` and `Released` states.
-- [ ] ReservationId is generated in the Application layer using the existing UUID generation contract and passed as a typed identifier to the StockItem aggregate.
+- [x] The Inventory bounded context has a domain model independent of Laravel and infrastructure.
+- [x] `StockItem` is the aggregate root for one `ProductId`.
+- [x] Exactly one StockItem per ProductId is the initial Inventory rule.
+- [x] Inventory identifiers use UUIDs and preserve type distinction.
+- [x] `ProductId` is treated as an external reference.
+- [x] `StockReservation` is an entity owned by `StockItem`.
+- [x] `Quantity` rejects negative values and permits zero.
+- [x] Operations that register, add or reserve stock require a positive quantity.
+- [x] The aggregate maintains `0 <= reserved <= onHand`.
+- [x] Available stock is derived from `onHand - reserved`.
+- [x] Active reservation quantities remain consistent with the reserved counter.
+- [x] Stock reservations cannot exceed available stock.
+- [x] A reservation can only be released once.
+- [x] The Inventory repository port is defined in the Domain.
+- [x] Reservation lookup returns the owning StockItem aggregate.
+- [x] Application use cases coordinate operations through domain behavior and repository ports.
+- [x] Relevant domain events use the shared UUID-compatible event contract, if recorded.
+- [x] Unit tests cover the relevant domain rules and application behavior.
+- [x] No persistence, API, RabbitMQ, Outbox, Inbox, projection or Orders implementation is introduced.
+- [x] No warehouse or location management is introduced.
+- [x] No unrelated Shared or User refactoring is introduced.
+- [x] Reservation status is represented by a dedicated `StockReservationStatus` enum with `Active` and `Released` states.
+- [x] ReservationId is generated in the Application layer using the existing UUID generation contract and passed as a typed identifier to the StockItem aggregate.
 
 ## 13. Future Considerations
 

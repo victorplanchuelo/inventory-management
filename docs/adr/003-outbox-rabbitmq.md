@@ -11,7 +11,12 @@ Publishing directly to RabbitMQ during a MySQL transaction creates a window of i
 - The database transaction may commit successfully even though RabbitMQ is unavailable.
 - The application may fail between publishing a message and recording its publication status.
 
-The repository already includes RabbitMQ and Symfony Messenger, so they should be leveraged before introducing another broker.
+The repository already includes RabbitMQ integration through the PHP `ext-amqp` extension. The existing RabbitMQ publisher uses the extension directly.
+
+Symfony Messenger is also present as a dependency, but the current RabbitMQ publisher does not use a Symfony Messenger AMQP transport.
+
+The Outbox implementation should reuse the existing RabbitMQ infrastructure where appropriate and must not introduce another broker or 
+messaging library without a demonstrated technical need.
 
 StockFlow requires reliable publication of integration events without coupling business transactions to RabbitMQ availability.
 
@@ -21,9 +26,9 @@ The system must support at-least-once delivery and tolerate duplicate messages.
 
 Persist each integration message in an Outbox table within the same MySQL transaction as the corresponding business change.
 
-An independent publisher reads pending Outbox messages and sends them to RabbitMQ using the existing Symfony Messenger integration.
+An independent publisher reads pending Outbox messages and sends them to RabbitMQ using the existing PHP `ext-amqp` infrastructure.
 
-The publisher must operate independently of the HTTP request lifecycle and must not contain domain business rules.
+The publisher must operate independently of the business use case and HTTP request lifecycle, and must not contain or execute domain business rules.
 
 Each bounded context that publishes integration events owns its Outbox records and publication responsibilities.
 
@@ -80,6 +85,25 @@ The implementation must define a safe claim and recovery strategy for concurrent
 A publisher must not hold a database transaction open while waiting for an external RabbitMQ operation longer than necessary.
 
 The exact locking, leasing and transaction strategy must be validated against the deployed MySQL version and the actual worker configuration.
+
+### Broker Confirmation and Routing
+
+A successful call to the RabbitMQ publish method alone is not sufficient evidence that an integration event has been successfully published.
+
+The publisher must:
+
+- Enable publisher confirms on the channel.
+- Wait for a positive broker confirmation before marking an Outbox record as published.
+- Treat a negative confirmation or confirmation timeout as a failed publication attempt.
+- Detect messages returned by RabbitMQ because they could not be routed to a queue.
+- Never mark a message as published when RabbitMQ reports that it was unroutable.
+- Preserve the original event identity when retrying a failed publication.
+
+The implementation must use mandatory routing or an equivalent mechanism to detect unroutable messages.
+
+Publisher confirmation and routing success are separate conditions: a positive broker confirmation alone does not prove that a message was routed to a queue.
+
+The exact interaction between publisher confirms, returned messages and the PHP AMQP client must be verified through integration tests against the project's RabbitMQ environment.
 
 ## Delivery and Idempotency
 
@@ -159,14 +183,17 @@ It is a reliable record of messages waiting to be published and their publicatio
 
 ## Implementation Constraints
 
-- Use the existing RabbitMQ and Symfony Messenger infrastructure where appropriate.
-- Do not introduce Redis.
+- Reuse the existing RabbitMQ infrastructure based on PHP `ext-amqp`.
+- Do not introduce Redis or another broker.
+- Do not introduce Symfony Messenger AMQP transport solely for the Outbox.
 - Do not publish integration messages directly from domain aggregates.
 - Do not make the success of a business transaction depend on RabbitMQ availability.
-- Persist the Outbox record in the same transaction as the business change.
-- Preserve the same `eventId` across retries.
+- Persist the Outbox record in the same transaction as the corresponding business change.
+- Preserve the same `eventId` across publication attempts.
 - Keep publisher implementation and transport concerns in Infrastructure.
-- Test atomic persistence, retry behavior, duplicate publication scenarios and publisher recovery.
+- Require broker confirmation and successful routing before marking a record as published.
+- Do not perform RabbitMQ network I/O inside the business transaction.
+- Test atomic persistence, concurrent claims, retry behavior, publisher confirmation, unroutable messages, duplicate publication scenarios and publisher recovery.
 - Do not introduce Event Sourcing as part of this decision.
 
 Any change to these architectural constraints must be evaluated and documented through an ADR update.

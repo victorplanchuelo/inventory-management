@@ -1,4 +1,4 @@
-# Task 06 — Inventory Persistence and Stock Reservation
+# Task 006 — Inventory Persistence and Stock Reservation
 
 **Status:** Proposed  
 **Bounded Context:** Inventory  
@@ -8,7 +8,7 @@
 
 Implement MySQL persistence for the Inventory bounded context and make stock operations safe under concurrent requests.
 
-This task builds on the Inventory domain and application foundation defined in Task 01.
+This task builds on the Inventory domain and application foundation defined in Task 001.
 
 It introduces the Infrastructure adapters required to persist and reconstruct `StockItem` aggregates, including their `StockReservation` entities.
 
@@ -28,7 +28,7 @@ The implementation must follow these principles:
 - Stock counters and reservation records must remain consistent.
 - Concurrent stock operations must be protected by database transactions and appropriate row locking.
 - Inventory business changes and their corresponding Inventory Outbox records must be committed atomically.
-- The Outbox publisher and RabbitMQ transport are provided by Task 03 and must not be reimplemented here.
+- The Outbox publisher and RabbitMQ transport are provided by Task 003 and must not be reimplemented here.
 - Inventory must not read or write Orders or Catalog persistence.
 - No cross-context transaction is introduced.
 
@@ -45,13 +45,13 @@ The implementation must follow these principles:
 - Implement transactional stock operations.
 - Lock StockItem records when required to protect concurrent updates.
 - Support reservation lookup by `ReservationId` through its owning StockItem.
-- Integrate Inventory business changes with the existing Outbox mechanism from Task 03.
+- Integrate Inventory business changes with the existing Outbox mechanism from Task 003.
 - Map relevant Inventory business facts to integration-event contracts.
 - Add persistence and concurrency integration tests using MySQL.
 
 ### Out of scope
 
-- Inventory domain and application foundation already specified by Task 01.
+- Inventory domain and application foundation already specified by Task 001.
 - Generic Outbox publisher implementation.
 - Generic Inbox and consumer infrastructure.
 - RabbitMQ exchange, queue and routing redesign.
@@ -70,21 +70,21 @@ The implementation must follow these principles:
 
 This task depends on:
 
-- **Task 01 — Inventory Domain and Application Foundation:** provides the StockItem aggregate, reservation entity, identifiers, value objects, domain operations, repository contract and application use cases.
-- **Task 02 — Shared Domain Event Compatibility and Test Structure:** provides the compatible shared event contract and established test organization. Task 02 is verified.
-- **Task 03 — Transactional Outbox and Integration Infrastructure:** provides the Outbox mechanism used to persist and publish integration events.
+- **Task 001 — Inventory Domain and Application Foundation:** provides the StockItem aggregate, reservation entity, identifiers, value objects, domain operations, repository contract and application use cases.
+- **Task 002 — Shared Domain Event Compatibility and Test Structure:** provides the compatible shared event contract and established test organization. Task 002 is verified.
+- **Task 003 — Transactional Outbox and Integration Infrastructure:** provides the Outbox mechanism used to persist and publish integration events.
 - **ADR 003 — Transactional Outbox and RabbitMQ:** defines atomic business-change and Outbox persistence.
 - **ADR 004 — Integration Events and Cross-Context Communication:** defines event ownership, envelope and producer responsibilities.
 
 The exact Inventory integration-event contracts must be agreed before publishing events consumed by other contexts.
 
-The task must not depend on Task 04 or Task 05 implementation. Those tasks consume events and maintain local projections; they do not own Inventory persistence.
+The task must not depend on Task 004 or Task 005 implementation. Those tasks consume events and maintain local projections; they do not own Inventory persistence.
 
 ### Dependency status
 
 Implementation is blocked until the required domain/application foundation and Outbox infrastructure are available and reviewed.
 
-If Task 01 or Task 03 changes its contracts during implementation planning, this specification must be reviewed before approval.
+If Task 001 or Task 003 changes its contracts during implementation planning, this specification must be reviewed before approval.
 
 ## 5. Persistence Model
 
@@ -340,7 +340,7 @@ If the existing domain and persistence contracts do not support aggregate versio
 
 The Inventory business change and corresponding Outbox record must be written within the same Inventory transaction.
 
-The task must integrate with Task 03's Outbox mechanism.
+The task must integrate with Task 003's Outbox mechanism.
 
 It must not:
 
@@ -354,7 +354,7 @@ The Outbox integration mechanism must preserve Inventory ownership of event crea
 
 ## 9. Application and Domain Boundaries
 
-Task 01 defines the Inventory domain and application use cases.
+Task 001 defines the Inventory domain and application use cases.
 
 This task should not redesign those contracts unnecessarily.
 
@@ -368,7 +368,7 @@ Potential areas requiring validation include:
 - How an operation's resulting domain events are made available for integration-event mapping.
 - How retryable persistence failures are distinguished from domain failures.
 
-Any change to Task 01 contracts must be reviewed before implementation.
+Any change to Task 001 contracts must be reviewed before implementation.
 
 The Domain must not acquire:
 
@@ -381,7 +381,7 @@ The Domain must not acquire:
 
 ## 10. Proposed Structure
 
-The following structure is a proposal and must be validated against the actual project conventions and Task 01 implementation before planning.
+The following structure is a proposal and must be validated against the actual project conventions and Task 001 implementation before planning.
 
 ```text
 src/
@@ -405,7 +405,7 @@ src/
             └── Repositories/
 ```
 
-Transaction and Outbox adapters must be placed according to the existing project conventions and the responsibilities established by Task 03.
+Transaction and Outbox adapters must be placed according to the existing project conventions and the responsibilities established by Task 003.
 
 Proposed migrations:
 
@@ -430,7 +430,7 @@ The actual filenames and directory organization must be confirmed during impleme
 
 ## 11. Files to Create or Modify
 
-The implementation plan must identify exact files after inspecting Task 01 and the Outbox implementation.
+The implementation plan must identify exact files after inspecting Task 001 and the Outbox implementation.
 
 Expected categories include:
 
@@ -444,7 +444,7 @@ Expected categories include:
 - Reservation persistence mapper, if separate mapping is justified.
 - StockItem repository adapter.
 - Inventory transaction adapter, if no suitable adapter exists.
-- Inventory integration-event mapping or recording adapter, following Task 03.
+- Inventory integration-event mapping or recording adapter, following Task 003.
 - Persistence and concurrency integration tests.
 
 ### Existing files to modify
@@ -458,9 +458,9 @@ Only files required to:
 
 ### Existing files to reuse
 
-- Inventory Domain and Application contracts from Task 01.
-- Shared event and UUID contracts from Task 02.
-- Outbox technical components from Task 03.
+- Inventory Domain and Application contracts from Task 001.
+- Shared event and UUID contracts from Task 002.
+- Outbox technical components from Task 003.
 - Existing database and test configuration.
 
 No existing file should be modified merely for stylistic consistency or unrelated refactoring.
@@ -526,10 +526,10 @@ Test:
 
 Run:
 
-- Inventory domain unit tests from Task 01.
-- Inventory application tests from Task 01.
+- Inventory domain unit tests from Task 001.
+- Inventory application tests from Task 001.
 - Existing shared domain-event tests.
-- Relevant Outbox tests from Task 03.
+- Relevant Outbox tests from Task 003.
 - The full applicable test suite.
 
 No test may be reported as passing until it has actually been executed.
@@ -550,7 +550,7 @@ No test may be reported as passing until it has actually been executed.
 - [ ] Database deadlocks and retryable failures have an explicit bounded retry policy.
 - [ ] Inventory integration events represent committed business facts.
 - [ ] Inventory business changes and corresponding Outbox records are committed in the same transaction.
-- [ ] The implementation reuses Task 03 Outbox infrastructure instead of creating another publisher.
+- [ ] The implementation reuses Task 003 Outbox infrastructure instead of creating another publisher.
 - [ ] No RabbitMQ network I/O occurs inside the Inventory transaction.
 - [ ] MySQL integration tests verify persistence, rollback and concurrency behavior.
 - [ ] Existing Inventory domain and application tests continue to pass.
@@ -561,7 +561,7 @@ No test may be reported as passing until it has actually been executed.
 
 The following points must be resolved or explicitly documented during implementation planning.
 
-### 14.1. Task 01 compatibility
+### 14.1. Task 001 compatibility
 
 The actual domain and application implementation must be inspected before finalizing repository and transaction adapter contracts.
 

@@ -8,17 +8,18 @@ Each task describes a bounded piece of work derived from the project requirement
 
 | Task | Document | Purpose | Status |
 |---|---|---|---|
-| 001 | `001-inventory-foundation.md` | Inventory domain and application foundation. | Proposed |
+| 001 | `001-inventory-foundation.md` | Inventory domain and application foundation. | Verified |
 | 002 | `002-shared-domain-event-compatibility-and-test-structure.md` | UUID aggregate identifiers, shared domain-event compatibility and test structure. | Verified |
 | 003 | `003-transactional-outbox-and-integration-infrastructure.md` | Transactional Outbox and reliable RabbitMQ publication. | Proposed |
 | 004 | `004-inbox-idempotent-consumers-and-event-ordering.md` | Idempotent message consumption, Inbox and event ordering. | Proposed |
 | 005 | `005-orders-inventory-availability-projection.md` | Orders-owned Inventory availability projection and advisory queries. | Proposed |
+| 006 | `006-inventory-persistence-and-stock-reservation.md` | Inventory persistence and Stock Reservation. | Proposed |
 
 The table describes the documents currently present. It is not a commitment to execute tasks in numerical order. Execution order must respect the actual dependencies and the implementation plan approved for each task.
 
-**Current implementation focus:** Task 001 — Inventory Domain and Application Foundation.
+**Current implementation focus:** Task 003 — Transactional Outbox and Integration Infrastructure
 
-Task 002 has been implemented and verified. Task 001 is the next task to research, plan and implement.
+Task 001 and 002 have been implemented and verified. Task 003 is the current task for documentation updates and planning.
 
 Future capabilities must not be treated as current implementation scope merely because they appear in requirements, ADRs or proposed task documents.
 
