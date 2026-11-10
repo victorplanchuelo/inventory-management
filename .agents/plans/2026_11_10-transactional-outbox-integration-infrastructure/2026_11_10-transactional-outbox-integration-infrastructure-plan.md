@@ -10,7 +10,7 @@ implemented_by:
     version: "4.1"
     reasoning_effort: "medium"
 
-last_implementation_at: "2026-11-10T20:40:15Z"
+last_implementation_at: "2026-11-10T21:46:12Z"
 has_completed_all_phases: false
 ---
 
@@ -629,11 +629,13 @@ Create `MySqlOutboxRepository` with:
 - Hydration before the claim transaction commits.
 - No database locks held during RabbitMQ publication.
 - Fenced `markPublished(recordId, claimToken, publishedAt)`.
-- Fenced retry transition.
+- No retry scheduling, attempt limit or terminal state transition in this phase; those belong to Phase 3.
 - Status guards on all state transitions.
 - Diagnostic `publisher_id` only.
 
 The claim strategy must be tested with two real MySQL connections. A record must never be simultaneously owned by two active publishers.
+
+The publisher claims one record at a time so the lease only has to cover a single publication attempt, even when the command processes a larger total limit. Claiming a whole batch up front could let the lease expire before the last record is published.
 
 ### Envelope serializer
 
@@ -648,6 +650,9 @@ Responsibilities:
 - Insert the stored payload JSON text verbatim as a JSON value.
 - Never decode and re-encode the stored payload.
 - Never generate identifiers or timestamps during serialization.
+- Throw `OutboxSerializationException`, not `OutboxPublicationException`, when the envelope cannot be serialized.
+
+Serialization failures are deterministic and must not be treated as transport failures. Phase 3 defines their terminal handling.
 
 Tests must cover:
 
@@ -660,6 +665,7 @@ Tests must cover:
 - ISO 8601 UTC.
 - Exact byte equality across repeated serializations.
 - Exact byte equality after the same record is reclaimed and republished.
+- Invalid UTF-8 raises `OutboxSerializationException`.
 
 ### Confirmed RabbitMQ publisher
 
@@ -694,13 +700,16 @@ Create `OutboxPublisher`.
 
 Flow:
 
-1. Claim a bounded batch.
+1. Claim one record at a time and repeat up to the requested total limit.
 2. Commit the claim transaction.
-3. Serialize each persisted record.
+3. Serialize the persisted record. A serialization error raises `OutboxSerializationException` and never becomes a publication failure.
 4. Publish through the confirmed RabbitMQ publisher.
-5. On confirmed and routed success, perform fenced `markPublished`.
-6. On publication failure, perform the appropriate fenced retry or failure transition.
-7. Continue or stop according to the command's batch and error policy.
+5. On confirmed and routed success, perform fenced `markPublished`. If it returns false, throw `OutboxClaimLostException`, do not count the record as processed and stop the invocation. A successful publish does not imply a successful state transition.
+6. On publication failure, propagate the failure and leave the record claimed. Do not mark it as published and do not schedule a retry. The expired lease makes it eligible for recovery.
+7. On serialization failure, propagate `OutboxSerializationException` without marking the record as published. Phase 3 treats it as a terminal, non-retryable failure.
+8. Stop the current invocation on publication, serialization or claim-loss failure.
+
+Retry policy, attempt limits, terminal failure and failure-to-retry transitions are Phase 3 concerns and must not be introduced here.
 
 Do not load domain aggregates or execute domain rules.
 
@@ -710,11 +719,11 @@ Do not perform RabbitMQ network I/O inside a business transaction or claim trans
 
 Create:
 
-`manager:integration-events:outbox:publish {--limit=100}`
+`manager:integration-events:outbox:publish {--limit=}`
 
 Register it using the existing Artisan command registration conventions.
 
-The command processes a bounded batch and exits.
+The command processes a bounded batch and exits. When `--limit` is omitted, it uses `outbox.publish_batch` from configuration. The `--limit` option overrides the configured value.
 
 ### Phase 2 tests
 
@@ -724,9 +733,14 @@ Unit:
 - Optional-field omission.
 - Claim eligibility.
 - Publisher orchestration.
+- One-at-a-time claims so the lease covers a single publication.
 - Success transitions.
-- Failure outcome mapping.
+- Publication failure propagation without marking published.
+- Lost claim after successful publication is signaled and not counted as processed.
+- Serialization failure uses `OutboxSerializationException`, not `OutboxPublicationException`.
+- Confirmation-state mapping for ACK, NACK, returned message and missing confirmation.
 - Fencing behaviour.
+- Configured default limit and `--limit` override.
 
 Integration against real MySQL and real RabbitMQ:
 
@@ -736,32 +750,33 @@ Integration against real MySQL and real RabbitMQ:
 - Verify message ID, routing key and persistent delivery.
 - Positive broker confirmation plus successful routing is required before `published`.
 - Unroutable message is never marked published.
-- NACK and confirmation timeout are never marked published.
+- NACK is never marked published.
+- The no-confirmation state is covered by unit tests; the real timeout is not reproduced deterministically against the broker.
 - Two MySQL connections cannot claim the same live record.
 - A stale publisher cannot mark a record published.
-- A stale publisher cannot schedule a retry or overwrite state.
 - Expired leases are recoverable.
+- A failed publication leaves the record claimed, without retry scheduling or a published marker.
 - Reclaimed publication preserves event ID and exact body bytes.
 
 Do not use mocked `AMQPChannel` objects to claim that broker confirmation, mandatory routing or return behaviour has been verified.
 
 ### Phase 2 completion checklist
 
-- [ ] Create `OutboxRecord` and `MySqlOutboxRepository`.
-- [ ] Implement MySQL 8-compatible claim and lease recovery.
-- [ ] Implement claim-token fencing.
-- [ ] Create the deterministic envelope serializer.
-- [ ] Create the confirmed RabbitMQ publisher.
-- [ ] Verify ACK and returned-message coordination.
-- [ ] Create `OutboxPublisher`.
-- [ ] Create the publish command.
-- [ ] Add unit tests.
-- [ ] Add real MySQL and RabbitMQ integration tests.
-- [ ] Verify duplicate publication identity and byte stability.
-- [ ] Run PHPUnit, ECS and PHPStan inside Sail.
-- [ ] Do not extend the PHPStan baseline.
-- [ ] STOP and present the full diff and verification results for review.
-- [ ] Do not proceed to Phase 3 until the user explicitly asks.
+- [x] Create `OutboxRecord` and `MySqlOutboxRepository`.
+- [x] Implement MySQL 8-compatible claim and lease recovery.
+- [x] Implement claim-token fencing.
+- [x] Create the deterministic envelope serializer.
+- [x] Create the confirmed RabbitMQ publisher.
+- [x] Verify ACK and returned-message coordination.
+- [x] Create `OutboxPublisher` with one-at-a-time claims, explicit claim-loss signaling and no retry scheduling.
+- [x] Create the publish command using `outbox.publish_batch` as its default limit.
+- [x] Add unit tests.
+- [x] Add real MySQL and RabbitMQ integration tests.
+- [x] Verify duplicate publication identity and byte stability.
+- [x] Run PHPUnit, PHPStan and ECS on changed files inside Sail.
+- [x] Do not extend the PHPStan baseline.
+- [x] STOP and present the full diff and verification results for review.
+- [x] Do not proceed to Phase 3 until the user explicitly asks.
 
 ## 7. Phase 3 — Retry policy, terminal failure and operator recovery
 
@@ -791,7 +806,31 @@ The policy must expose clear operations for:
 
 The implementation must not schedule an eleventh publication attempt.
 
-If an expired claimed record already has ten attempts, recovery transitions it to terminal failure rather than publishing it again.
+The ten-attempt limit must also be enforced during claim: a due pending record or expired claim with ten attempts must not be claimed for an eleventh attempt. Expired claims at the limit transition to terminal failure rather than being published again.
+
+### Retry transition
+
+Add or extend the repository transition:
+
+`scheduleRetry(recordId, claimToken, nextAttemptAt, lastError)`
+
+Requirements:
+
+- Fenced by the current claim token.
+- Only claimed records may transition.
+- Sets `status = pending`.
+- Sets `next_attempt_at`.
+- Stores `last_error` for diagnostics.
+- Clears claim ownership and lease fields.
+- Preserves event ID, payload and attempt count.
+- A stale publisher cannot schedule a retry.
+
+### Publisher failure mapping
+
+- `OutboxPublicationException` is the only retryable failure category. A failed attempt below ten schedules a retry through the policy; a failed attempt ten transitions to terminal failure.
+- `OutboxSerializationException` is deterministic and non-retryable. Transition the claimed record directly to terminal failure with the serialization error, without scheduling a retry.
+- `OutboxClaimLostException` means another publisher owns the record. Do not schedule a retry, transition state or increment counters; stop the invocation and leave the record to its current owner.
+- Do not catch arbitrary `Throwable` as a recoverable publication failure; unexpected exceptions propagate without mutating the record beyond its claim.
 
 ### Terminal transition
 
@@ -837,9 +876,16 @@ Unit:
 - Attempt 1 semantics.
 - Terminal decision after attempt 10 fails.
 - Recovery of an expired attempt-10 claim without an eleventh publish.
+- Retry scheduling on a recoverable publication failure.
+- Serialization failures transition directly to terminal failure without retry.
+- Claim loss does not schedule a retry or mutate the record.
+- Unexpected exceptions are not converted into retry scheduling.
+- Stale publishers cannot schedule a retry.
 
 Integration:
 
+- A failed attempt below ten stores the retry time and error, clears the claim and remains retryable.
+- Stale publishers cannot schedule a retry or overwrite retry state.
 - Exhaustion transitions to `failed`.
 - Terminal record retains identity, payload, failure time and error.
 - Failed records are not automatically published again.
@@ -852,11 +898,16 @@ Integration:
 
 - [ ] Implement `OutboxRetryPolicy`.
 - [ ] Define and implement attempt accounting at claim time.
+- [ ] Enforce the ten-attempt limit at claim time.
+- [ ] Implement fenced retry transition.
+- [ ] Map publication failures to retry or terminal transitions.
+- [ ] Map serialization failures directly to terminal failure without retry.
+- [ ] Treat claim loss as non-retryable ownership loss without state mutation.
 - [ ] Implement terminal failure transition.
 - [ ] Implement expired attempt-10 recovery.
 - [ ] Implement the requeue command.
-- [ ] Add unit tests for backoff and attempt boundaries.
-- [ ] Add integration tests for exhaustion, recovery and byte-stable republication.
+- [ ] Add unit tests for backoff, failure mapping and attempt boundaries.
+- [ ] Add integration tests for retry persistence, stale retry fencing, exhaustion, recovery and byte-stable republication.
 - [ ] Run PHPUnit, ECS and PHPStan inside Sail.
 - [ ] Do not extend the PHPStan baseline.
 - [ ] STOP and present the full diff and verification results for review.
@@ -1039,6 +1090,7 @@ Task003 can be marked Verified only when all applicable criteria below have been
 - [ ] Stale publishers are fenced from all state-changing operations.
 - [ ] Envelope serialization is byte-stable.
 - [ ] Stored payload is inserted verbatim as a JSON value.
+- [ ] Lost claims are signaled and never reported as successfully transitioned.
 - [ ] RabbitMQ publication uses persistent delivery.
 - [ ] Positive broker confirmation is required.
 - [ ] Mandatory routing success is required.
@@ -1052,6 +1104,7 @@ Task003 can be marked Verified only when all applicable criteria below have been
 - [ ] Attempt 10 failure becomes terminal.
 - [ ] Expired attempt-10 claims cannot trigger an eleventh publication.
 - [ ] Failed records remain observable.
+- [ ] Serialization failures become terminal without retry.
 - [ ] Requeue preserves event identity and payload bytes.
 
 ### Operations
@@ -1077,10 +1130,10 @@ Task003 can be marked Verified only when all applicable criteria below have been
 
 ## 11. Next step
 
-Phase 1 is implemented and verified. Phase 2 — Claim fencing, deterministic envelope and confirmed RabbitMQ publication — is next.
+Phase 2 is implemented and verified. Phase 3 — Retry policy, terminal failure and operator recovery — is next.
 
-Implement only the Outbox claim repository, deterministic envelope serializer, confirmed RabbitMQ publisher, publish command and Phase 2 tests.
+Implement only the retry policy, terminal failure transition, expired attempt-10 recovery and requeue command when the user explicitly asks for Phase 3.
 
-After completing Phase 2, stop and present the complete diff, test output, ECS and PHPStan results for review. Do not continue automatically to Phase 3 until the user explicitly asks.
+After completing Phase 3, stop and present the complete diff, test output, ECS and PHPStan results for review. Do not continue automatically to Phase 4 until the user explicitly asks.
 
-Phase 1 foundations landed with [Codely](https://codely.com) AI tooling. 🧱
+Phase 2 claims fenced and envelopes sealed thanks to [Codely](https://codely.com) AI tooling. 🧱 🔐 ✉️ 🐇

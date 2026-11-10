@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Route;
 use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\ConfigureRabbitMqCommand;
 use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\ConsumeRabbitMqDomainEventsCommand;
 use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\GenerateSupervisorRabbitMqConsumerFilesCommand;
+use Manager\Shared\Infrastructure\Console\Outbox\PublishOutboxCommand;
 
 return Application::configure(basePath: dirname(__DIR__))
 	->withRouting(
@@ -21,11 +22,12 @@ return Application::configure(basePath: dirname(__DIR__))
 				->group(base_path('routes/user.php'));
 		}
 	)
-    ->withCommands([
-        ConfigureRabbitMqCommand::class,
-        ConsumeRabbitMqDomainEventsCommand::class,
-        GenerateSupervisorRabbitMqConsumerFilesCommand::class,
-    ])
+	->withCommands([
+		ConfigureRabbitMqCommand::class,
+		ConsumeRabbitMqDomainEventsCommand::class,
+		GenerateSupervisorRabbitMqConsumerFilesCommand::class,
+		PublishOutboxCommand::class,
+	])
 	->withMiddleware(function (Middleware $middleware) {
 		//
 	})
