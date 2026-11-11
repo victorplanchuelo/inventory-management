@@ -16,6 +16,7 @@ use Manager\Shared\Infrastructure\Outbox\OutboxPublicationException;
 use Manager\Shared\Infrastructure\Outbox\OutboxPublisher;
 use Manager\Shared\Infrastructure\Outbox\OutboxRecord;
 use Manager\Shared\Infrastructure\Outbox\OutboxRepository;
+use Manager\Shared\Infrastructure\Outbox\OutboxRetryPolicy;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Tests\Shared\Infrastructure\PhpUnit\UnitTestCase;
@@ -43,6 +44,8 @@ final class OutboxPublisherTest extends UnitTestCase
 		$this->assertCount(1, $repository->published);
 		$this->assertSame($record->id, $repository->published[0]['recordId']);
 		$this->assertSame('claim-token', $repository->published[0]['claimToken']);
+		$this->assertSame([], $repository->retries);
+		$this->assertSame([], $repository->failures);
 	}
 
 	#[Test]
@@ -80,28 +83,74 @@ final class OutboxPublisherTest extends UnitTestCase
 	}
 
 	#[Test]
-	public function it_should_leave_the_record_unpublished_when_the_publication_fails(): void
+	public function it_should_schedule_a_retry_when_publication_fails_below_the_attempt_limit(): void
 	{
-		$repository = new FakeOutboxRepository([$this->record()]);
+		$record = $this->record();
+		$repository = new FakeOutboxRepository([$record]);
 		$transport = new ScriptedOutboxEventPublisher([
 			new OutboxPublicationException('RabbitMQ negatively acknowledged the integration event.'),
 		]);
 		$publisher = $this->publisher($repository, $transport);
+		$before = time();
 
-		try {
-			$publisher->publishBatch(10);
-			$this->fail('The publisher should propagate the publication failure.');
-		} catch (OutboxPublicationException $exception) {
-			$this->assertStringContainsString('negatively acknowledged', $exception->getMessage());
-		}
+		$processed = $publisher->publishBatch(10);
+		$after = time();
 
-		$this->assertSame([1], $repository->claimLimits);
+		$this->assertSame(0, $processed);
 		$this->assertSame([], $repository->published);
+		$this->assertCount(1, $repository->retries);
+		$this->assertSame($record->id, $repository->retries[0]['recordId']);
+		$this->assertSame('claim-token', $repository->retries[0]['claimToken']);
+		$this->assertStringContainsString('negatively acknowledged', $repository->retries[0]['lastError']);
+		$this->assertGreaterThanOrEqual($before + 5, $repository->retries[0]['nextAttemptAt']->getTimestamp());
+		$this->assertLessThanOrEqual($after + 5, $repository->retries[0]['nextAttemptAt']->getTimestamp());
+		$this->assertSame([], $repository->failures);
+		$this->assertSame([], $transport->failures);
 		$this->assertSame([], $transport->published);
 	}
 
 	#[Test]
-	public function it_should_propagate_unexpected_errors_without_marking_the_record_as_published(): void
+	public function it_should_mark_the_record_as_failed_when_the_tenth_attempt_fails(): void
+	{
+		$record = $this->record(attempts: 10);
+		$repository = new FakeOutboxRepository([$record]);
+		$transport = new ScriptedOutboxEventPublisher([
+			new OutboxPublicationException('RabbitMQ confirmation timed out.'),
+		]);
+		$publisher = $this->publisher($repository, $transport);
+
+		$processed = $publisher->publishBatch(10);
+
+		$this->assertSame(0, $processed);
+		$this->assertSame([], $repository->published);
+		$this->assertSame([], $repository->retries);
+		$this->assertCount(1, $repository->failures);
+		$this->assertSame($record->id, $repository->failures[0]['recordId']);
+		$this->assertSame('claim-token', $repository->failures[0]['claimToken']);
+		$this->assertStringContainsString('timed out', $repository->failures[0]['lastError']);
+	}
+
+	#[Test]
+	public function it_should_mark_the_record_as_failed_without_retry_when_serialization_fails(): void
+	{
+		$record = $this->record(eventName: "\xB1\x31");
+		$repository = new FakeOutboxRepository([$record]);
+		$transport = new ScriptedOutboxEventPublisher();
+		$publisher = $this->publisher($repository, $transport);
+
+		$processed = $publisher->publishBatch(10);
+
+		$this->assertSame(0, $processed);
+		$this->assertSame([], $repository->published);
+		$this->assertSame([], $repository->retries);
+		$this->assertCount(1, $repository->failures);
+		$this->assertStringContainsString('could not be serialized', $repository->failures[0]['lastError']);
+		$this->assertSame([], $transport->published);
+		$this->assertSame([], $transport->failures);
+	}
+
+	#[Test]
+	public function it_should_propagate_unexpected_errors_without_transitioning_the_record(): void
 	{
 		$repository = new FakeOutboxRepository([$this->record()]);
 		$transport = new ScriptedOutboxEventPublisher([new LogicException('Unexpected failure.'), ]);
@@ -116,11 +165,13 @@ final class OutboxPublisherTest extends UnitTestCase
 
 		$this->assertSame([1], $repository->claimLimits);
 		$this->assertSame([], $repository->published);
+		$this->assertSame([], $repository->retries);
+		$this->assertSame([], $repository->failures);
 		$this->assertSame([], $transport->published);
 	}
 
 	#[Test]
-	public function it_should_stop_the_batch_when_the_publication_fails(): void
+	public function it_should_continue_with_the_next_record_after_scheduling_a_retry(): void
 	{
 		$first = $this->record('11111111-1111-4111-8111-111111111111');
 		$second = $this->record('22222222-2222-4222-8222-222222222222');
@@ -130,14 +181,34 @@ final class OutboxPublisherTest extends UnitTestCase
 		]);
 		$publisher = $this->publisher($repository, $transport);
 
-		try {
-			$publisher->publishBatch(10);
-			$this->fail('The publisher should propagate the publication failure.');
-		} catch (OutboxPublicationException $exception) {
-			$this->assertStringContainsString('timed out', $exception->getMessage());
-		}
+		$processed = $publisher->publishBatch(2);
 
+		$this->assertSame(1, $processed);
+		$this->assertSame([1, 1], $repository->claimLimits);
+		$this->assertCount(1, $repository->retries);
+		$this->assertSame($first->id, $repository->retries[0]['recordId']);
+		$this->assertCount(1, $repository->published);
+		$this->assertSame($second->id, $repository->published[0]['recordId']);
+		$this->assertCount(1, $transport->published);
+		$this->assertSame($second->eventId, $transport->published[0]['eventId']);
+	}
+
+	#[Test]
+	public function it_should_count_a_scheduled_retry_towards_the_requested_limit(): void
+	{
+		$first = $this->record('11111111-1111-4111-8111-111111111111');
+		$second = $this->record('22222222-2222-4222-8222-222222222222');
+		$repository = new FakeOutboxRepository([$first, $second]);
+		$transport = new ScriptedOutboxEventPublisher([
+			new OutboxPublicationException('RabbitMQ confirmation timed out.'),
+		]);
+		$publisher = $this->publisher($repository, $transport);
+
+		$processed = $publisher->publishBatch(1);
+
+		$this->assertSame(0, $processed);
 		$this->assertSame([1], $repository->claimLimits);
+		$this->assertCount(1, $repository->retries);
 		$this->assertSame([], $repository->published);
 		$this->assertSame([], $transport->published);
 	}
@@ -162,6 +233,52 @@ final class OutboxPublisherTest extends UnitTestCase
 		$this->assertSame([1], $repository->claimLimits);
 		$this->assertCount(1, $repository->published);
 		$this->assertCount(1, $transport->published);
+		$this->assertSame([], $repository->retries);
+		$this->assertSame([], $repository->failures);
+	}
+
+	#[Test]
+	public function it_should_signal_a_lost_claim_when_the_retry_cannot_be_scheduled(): void
+	{
+		$repository = new FakeOutboxRepository([$this->record()]);
+		$repository->scheduleRetryResult = false;
+		$transport = new ScriptedOutboxEventPublisher([
+			new OutboxPublicationException('RabbitMQ confirmation timed out.'),
+		]);
+		$publisher = $this->publisher($repository, $transport);
+
+		try {
+			$publisher->publishBatch(10);
+			$this->fail('The publisher should signal the lost claim.');
+		} catch (OutboxClaimLostException $exception) {
+			$this->assertStringContainsString('retry could be scheduled', $exception->getMessage());
+		}
+
+		$this->assertSame([], $repository->published);
+		$this->assertCount(1, $repository->retries);
+		$this->assertSame([], $repository->failures);
+	}
+
+	#[Test]
+	public function it_should_signal_a_lost_claim_when_the_terminal_failure_cannot_be_confirmed(): void
+	{
+		$repository = new FakeOutboxRepository([$this->record(attempts: 10)]);
+		$repository->markFailedResult = false;
+		$transport = new ScriptedOutboxEventPublisher([
+			new OutboxPublicationException('RabbitMQ confirmation timed out.'),
+		]);
+		$publisher = $this->publisher($repository, $transport);
+
+		try {
+			$publisher->publishBatch(10);
+			$this->fail('The publisher should signal the lost claim.');
+		} catch (OutboxClaimLostException $exception) {
+			$this->assertStringContainsString('marked as failed', $exception->getMessage());
+		}
+
+		$this->assertSame([], $repository->published);
+		$this->assertSame([], $repository->retries);
+		$this->assertCount(1, $repository->failures);
 	}
 
 	#[Test]
@@ -188,18 +305,28 @@ final class OutboxPublisherTest extends UnitTestCase
 
 	private function publisher(OutboxRepository $repository, OutboxEventPublisher $transport): OutboxPublisher
 	{
-		return new OutboxPublisher($repository, new OutboxEnvelopeSerializer(), $transport, 'publisher-test');
+		return new OutboxPublisher(
+			$repository,
+			new OutboxEnvelopeSerializer(),
+			$transport,
+			new OutboxRetryPolicy(),
+			'publisher-test'
+		);
 	}
 
-	private function record(string $eventId = self::EVENT_ID, ?string $claimToken = 'claim-token'): OutboxRecord
-	{
+	private function record(
+		string $eventId = self::EVENT_ID,
+		?string $claimToken = 'claim-token',
+		int $attempts = 1,
+		string $eventName = 'orders.order_confirmed',
+	): OutboxRecord {
 		return new OutboxRecord(
 			id: $eventId === self::EVENT_ID
 				? '2f7f34f8-1f8b-4a4f-8f57-0fda4f9a5e01'
 				: '3f7f34f8-1f8b-4a4f-8f57-0fda4f9a5e02',
 			producer: 'orders',
 			eventId: $eventId,
-			eventName: 'orders.order_confirmed',
+			eventName: $eventName,
 			eventVersion: '1',
 			aggregateType: 'order',
 			aggregateId: self::AGGREGATE_ID,
@@ -210,7 +337,7 @@ final class OutboxPublisherTest extends UnitTestCase
 			occurredAt: new DateTimeImmutable('2026-11-10T10:34:56Z', new DateTimeZone('UTC')),
 			createdAt: new DateTimeImmutable('2026-11-10T10:35:01Z', new DateTimeZone('UTC')),
 			publishedAt: null,
-			attempts: 1,
+			attempts: $attempts,
 			nextAttemptAt: null,
 			lockedAt: new DateTimeImmutable('2026-11-10T10:35:01Z', new DateTimeZone('UTC')),
 			claimToken: $claimToken,
@@ -227,10 +354,20 @@ final class FakeOutboxRepository implements OutboxRepository
 	/** @var list<array{recordId: string, claimToken: string, publishedAt: DateTimeImmutable}> */
 	public array $published = [];
 
+	/** @var list<array{recordId: string, claimToken: string, nextAttemptAt: DateTimeImmutable, lastError: string}> */
+	public array $retries = [];
+
+	/** @var list<array{recordId: string, claimToken: string, failedAt: DateTimeImmutable, lastError: string}> */
+	public array $failures = [];
+
 	/** @var list<int> */
 	public array $claimLimits = [];
 
 	public bool $markPublishedResult = true;
+
+	public bool $scheduleRetryResult = true;
+
+	public bool $markFailedResult = true;
 
 	/** @var list<OutboxRecord> */
 	private array $records;
@@ -261,6 +398,43 @@ final class FakeOutboxRepository implements OutboxRepository
 
 		return $this->markPublishedResult;
 	}
+
+	public function scheduleRetry(
+		string $recordId,
+		string $claimToken,
+		DateTimeImmutable $nextAttemptAt,
+		string $lastError,
+	): bool {
+		$this->retries[] = [
+			'recordId' => $recordId,
+			'claimToken' => $claimToken,
+			'nextAttemptAt' => $nextAttemptAt,
+			'lastError' => $lastError,
+		];
+
+		return $this->scheduleRetryResult;
+	}
+
+	public function markFailed(
+		string $recordId,
+		string $claimToken,
+		DateTimeImmutable $failedAt,
+		string $lastError,
+	): bool {
+		$this->failures[] = [
+			'recordId' => $recordId,
+			'claimToken' => $claimToken,
+			'failedAt' => $failedAt,
+			'lastError' => $lastError,
+		];
+
+		return $this->markFailedResult;
+	}
+
+	public function requeueFailed(string $eventId): bool
+	{
+		return false;
+	}
 }
 
 final class ScriptedOutboxEventPublisher implements OutboxEventPublisher
@@ -268,8 +442,14 @@ final class ScriptedOutboxEventPublisher implements OutboxEventPublisher
 	/** @var list<array{eventId: string, envelope: string}> */
 	public array $published = [];
 
+	/** @var list<Throwable> */
+	public array $failures;
+
 	/** @param list<Throwable> $failures */
-	public function __construct(private array $failures = []) {}
+	public function __construct(array $failures = [])
+	{
+		$this->failures = $failures;
+	}
 
 	public function publish(OutboxRecord $record, string $envelope): void
 	{

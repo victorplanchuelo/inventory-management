@@ -176,6 +176,73 @@ final class OutboxCommandsTest extends InfrastructureTestCase
 		$this->assertNull($this->queue->get(AMQP_AUTOACK));
 	}
 
+	#[Test]
+	public function it_should_requeue_a_failed_record_and_publish_the_same_event_identity(): void
+	{
+		$message = $this->append('orders.order_confirmed');
+		$lastError = 'OutboxPublicationException: RabbitMQ confirmation timed out.';
+
+		$this->connection->table('outbox')->where('event_id', $message->eventId())->update([
+			'status' => 'failed',
+			'attempts' => 10,
+			'failed_at' => '2026-11-10 11:55:00',
+			'next_attempt_at' => null,
+			'locked_at' => '2026-11-10 11:50:00',
+			'claim_token' => 'stale-token',
+			'publisher_id' => 'stale-publisher',
+			'last_error' => $lastError,
+		]);
+
+		$this->artisan('manager:integration-events:outbox:requeue', ['eventId' => $message->eventId()])
+			->assertSuccessful();
+
+		$requeued = $this->row($message->eventId());
+
+		$this->assertSame('pending', $requeued['status']);
+		$this->assertSame(0, (int) $requeued['attempts']);
+		$this->assertNull($requeued['failed_at']);
+		$this->assertNull($requeued['next_attempt_at']);
+		$this->assertNull($requeued['locked_at']);
+		$this->assertNull($requeued['claim_token']);
+		$this->assertNull($requeued['publisher_id']);
+		$this->assertSame($lastError, $requeued['last_error']);
+
+		$this->artisan('manager:integration-events:outbox:publish', ['--limit' => 1])
+			->assertSuccessful();
+
+		$envelope = $this->queue->get(AMQP_AUTOACK);
+
+		$this->assertInstanceOf(AMQPEnvelope::class, $envelope);
+		$this->assertSame($message->eventId(), $envelope->getMessageId());
+		$this->assertSame($this->expectedEnvelope($message), $envelope->getBody());
+
+		$published = $this->row($message->eventId());
+
+		$this->assertSame('published', $published['status']);
+		$this->assertSame(1, (int) $published['attempts']);
+	}
+
+	#[Test]
+	public function it_should_refuse_to_requeue_a_record_that_is_not_failed(): void
+	{
+		$message = $this->append('orders.order_confirmed');
+
+		$this->artisan('manager:integration-events:outbox:requeue', ['eventId' => $message->eventId()])
+			->assertFailed();
+
+		$row = $this->row($message->eventId());
+
+		$this->assertSame('pending', $row['status']);
+		$this->assertSame(0, (int) $row['attempts']);
+	}
+
+	#[Test]
+	public function it_should_refuse_to_requeue_an_unknown_event_id(): void
+	{
+		$this->artisan('manager:integration-events:outbox:requeue', ['eventId' => SimpleUuid::random()->value()])
+			->assertFailed();
+	}
+
 	private function append(string $eventName): OutboxMessage
 	{
 		$eventId = SimpleUuid::random()->value();
@@ -195,6 +262,30 @@ final class OutboxCommandsTest extends InfrastructureTestCase
 		$this->recorder->append($message);
 
 		return $message;
+	}
+
+	/** @return array<string, mixed> */
+	private function row(string $eventId): array
+	{
+		$row = $this->connection->table('outbox')->where('event_id', $eventId)->first();
+
+		$this->assertNotNull($row);
+
+		/** @var array<string, mixed> $values */
+		$values = (array) $row;
+
+		return $values;
+	}
+
+	private function expectedEnvelope(OutboxMessage $message): string
+	{
+		return '{"eventId":"' . $message->eventId() . '",'
+			. '"eventName":"' . $message->eventName() . '",'
+			. '"eventVersion":"1",'
+			. '"aggregateType":"order",'
+			. '"aggregateId":"' . self::AGGREGATE_ID . '",'
+			. '"occurredAt":"2026-11-10T10:34:56Z",'
+			. '"payload":{"orderId":"abc"}}';
 	}
 
 	/** @param list<OutboxMessage> $messages */

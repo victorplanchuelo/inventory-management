@@ -10,7 +10,7 @@ implemented_by:
     version: "4.1"
     reasoning_effort: "medium"
 
-last_implementation_at: "2026-11-10T21:46:12Z"
+last_implementation_at: "2026-11-11T10:05:31Z"
 has_completed_all_phases: false
 ---
 
@@ -230,7 +230,9 @@ Rules:
 - A process crash after claiming a record still consumes that attempt.
 - A reclaimed record must not be allowed to exceed ten total attempts.
 
-If an expired claim is recovered and its stored attempt count is already 10, it must transition to terminal failure without starting an eleventh publication attempt.
+If an expired claim is recovered and its stored attempt count is already 10, it must transition to terminal failure without starting an eleventh publication attempt. A pending record whose stored attempt count has reached 10 must also transition to terminal failure during claim recovery; it must never remain permanently pending and unclaimable.
+
+Recovery of exhausted records is bounded by the same limit used for claiming and ordered by `created_at`, `id`; subsequent claims continue with the remaining records. This prevents a single claim transaction from locking and updating an unbounded backlog.
 
 The recovery path must use row locking and conditional state transitions so that a stale publisher cannot override the terminal outcome.
 
@@ -494,6 +496,8 @@ Enum values:
 - `claimed`
 - `published`
 - `failed`
+
+A `pending` record may transition to `failed` when it has exhausted the attempt limit during claim recovery.
 
 Keep publication state in Shared Application/Infrastructure. Do not introduce Outbox publication states into bounded-context Domain models.
 
@@ -806,7 +810,7 @@ The policy must expose clear operations for:
 
 The implementation must not schedule an eleventh publication attempt.
 
-The ten-attempt limit must also be enforced during claim: a due pending record or expired claim with ten attempts must not be claimed for an eleventh attempt. Expired claims at the limit transition to terminal failure rather than being published again.
+The ten-attempt limit must also be enforced during claim: a pending record or expired claim with ten attempts must not be claimed for an eleventh attempt. Pending records and expired claims at the limit transition to terminal failure during claim recovery rather than being published again or remaining permanently unclaimable.
 
 ### Retry transition
 
@@ -823,6 +827,7 @@ Requirements:
 - Stores `last_error` for diagnostics.
 - Clears claim ownership and lease fields.
 - Preserves event ID, payload and attempt count.
+- Must not schedule a retry when the stored attempt count has reached the limit; return `false` without mutating the record.
 - A stale publisher cannot schedule a retry.
 
 ### Publisher failure mapping
@@ -831,6 +836,8 @@ Requirements:
 - `OutboxSerializationException` is deterministic and non-retryable. Transition the claimed record directly to terminal failure with the serialization error, without scheduling a retry.
 - `OutboxClaimLostException` means another publisher owns the record. Do not schedule a retry, transition state or increment counters; stop the invocation and leave the record to its current owner.
 - Do not catch arbitrary `Throwable` as a recoverable publication failure; unexpected exceptions propagate without mutating the record beyond its claim.
+
+After a recoverable or terminal failure has been recorded, the invocation continues with the next record in the bounded batch. Claim loss and unexpected exceptions stop the invocation.
 
 ### Terminal transition
 
@@ -844,6 +851,7 @@ Requirements:
 - Sets `status = failed`.
 - Sets `failed_at`.
 - Stores `last_error`.
+- Preserves an existing `last_error` during exhaustion recovery and uses a generic exhaustion message only when none is stored.
 - Clears claim ownership and lease fields.
 - Preserves event ID and payload text.
 
@@ -887,6 +895,10 @@ Integration:
 - A failed attempt below ten stores the retry time and error, clears the claim and remains retryable.
 - Stale publishers cannot schedule a retry or overwrite retry state.
 - Exhaustion transitions to `failed`.
+- A pending record at the attempt limit transitions to `failed` during claim recovery, preserving event identity and payload.
+- Exhaustion preserves an existing `last_error` and uses a generic message when none is stored.
+- Exhausted-record recovery is bounded by the claim limit and uses stable `created_at`, `id` ordering; subsequent claims recover the remainder.
+- Retry scheduling is refused at the attempt limit.
 - Terminal record retains identity, payload, failure time and error.
 - Failed records are not automatically published again.
 - Requeue returns a failed record to pending.
@@ -896,22 +908,22 @@ Integration:
 
 ### Phase 3 completion checklist
 
-- [ ] Implement `OutboxRetryPolicy`.
-- [ ] Define and implement attempt accounting at claim time.
-- [ ] Enforce the ten-attempt limit at claim time.
-- [ ] Implement fenced retry transition.
-- [ ] Map publication failures to retry or terminal transitions.
-- [ ] Map serialization failures directly to terminal failure without retry.
-- [ ] Treat claim loss as non-retryable ownership loss without state mutation.
-- [ ] Implement terminal failure transition.
-- [ ] Implement expired attempt-10 recovery.
-- [ ] Implement the requeue command.
-- [ ] Add unit tests for backoff, failure mapping and attempt boundaries.
-- [ ] Add integration tests for retry persistence, stale retry fencing, exhaustion, recovery and byte-stable republication.
-- [ ] Run PHPUnit, ECS and PHPStan inside Sail.
-- [ ] Do not extend the PHPStan baseline.
-- [ ] STOP and present the full diff and verification results for review.
-- [ ] Do not proceed to Phase 4 until the user explicitly asks.
+- [x] Implement `OutboxRetryPolicy`.
+- [x] Define and implement attempt accounting at claim time.
+- [x] Enforce the ten-attempt limit at claim time.
+- [x] Implement fenced retry transition.
+- [x] Map publication failures to retry or terminal transitions.
+- [x] Map serialization failures directly to terminal failure without retry.
+- [x] Treat claim loss as non-retryable ownership loss without state mutation.
+- [x] Implement terminal failure transition.
+- [x] Implement expired attempt-10 recovery.
+- [x] Implement the requeue command.
+- [x] Add unit tests for backoff, failure mapping and attempt boundaries.
+- [x] Add integration tests for retry persistence, stale retry fencing, exhaustion, recovery and byte-stable republication.
+- [x] Run PHPUnit, ECS and PHPStan inside Sail.
+- [x] Do not extend the PHPStan baseline.
+- [x] STOP and present the full diff and verification results for review.
+- [x] Do not proceed to Phase 4 until the user explicitly asks.
 
 ## 8. Phase 4 — Observability, retention, supervision and documentation
 
@@ -1087,7 +1099,7 @@ Task003 can be marked Verified only when all applicable criteria below have been
 - [ ] Claims are exclusive under concurrent MySQL connections.
 - [ ] Every claim attempt receives a new token.
 - [ ] Expired leases are recoverable.
-- [ ] Stale publishers are fenced from all state-changing operations.
+- [x] Stale publishers are fenced from all state-changing operations.
 - [ ] Envelope serialization is byte-stable.
 - [ ] Stored payload is inserted verbatim as a JSON value.
 - [ ] Lost claims are signaled and never reported as successfully transitioned.
@@ -1099,13 +1111,17 @@ Task003 can be marked Verified only when all applicable criteria below have been
 
 ### Failure handling
 
-- [ ] Ten total attempts are enforced.
-- [ ] Crashed claimed attempts count toward the limit.
-- [ ] Attempt 10 failure becomes terminal.
-- [ ] Expired attempt-10 claims cannot trigger an eleventh publication.
-- [ ] Failed records remain observable.
-- [ ] Serialization failures become terminal without retry.
-- [ ] Requeue preserves event identity and payload bytes.
+- [x] Ten total attempts are enforced.
+- [x] Crashed claimed attempts count toward the limit.
+- [x] Attempt 10 failure becomes terminal.
+- [x] Expired attempt-10 claims cannot trigger an eleventh publication.
+- [x] Pending records at the attempt limit cannot remain abandoned.
+- [x] Exhaustion preserves an existing `last_error` and falls back to a generic message.
+- [x] Exhausted-record recovery is bounded per claim transaction.
+- [x] Retry scheduling is refused at the attempt limit.
+- [x] Failed records remain observable.
+- [x] Serialization failures become terminal without retry.
+- [x] Requeue preserves event identity and payload bytes.
 
 ### Operations
 
@@ -1130,10 +1146,10 @@ Task003 can be marked Verified only when all applicable criteria below have been
 
 ## 11. Next step
 
-Phase 2 is implemented and verified. Phase 3 — Retry policy, terminal failure and operator recovery — is next.
+Phase 3 is implemented and verified. Phase 4 — Observability, retention, supervision and documentation — is next.
 
-Implement only the retry policy, terminal failure transition, expired attempt-10 recovery and requeue command when the user explicitly asks for Phase 3.
+Implement the status and purge commands, retention configuration, structured logging and operational documentation only when the user explicitly asks for Phase 4.
 
-After completing Phase 3, stop and present the complete diff, test output, ECS and PHPStan results for review. Do not continue automatically to Phase 4 until the user explicitly asks.
+After completing Phase 4, stop and present the complete diff, test output, ECS and PHPStan results for review. Do not mark Task003 as verified until all acceptance criteria have actually been verified.
 
-Phase 2 claims fenced and envelopes sealed thanks to [Codely](https://codely.com) AI tooling. 🧱 🔐 ✉️ 🐇
+Phase 3 retries scheduled and failures fenced thanks to [Codely](https://codely.com) AI tooling. 🔁 🧯 🧱 🔐 ✉️ 🐇

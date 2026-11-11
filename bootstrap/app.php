@@ -10,6 +10,7 @@ use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\ConfigureRabbitMqCommand;
 use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\ConsumeRabbitMqDomainEventsCommand;
 use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\GenerateSupervisorRabbitMqConsumerFilesCommand;
 use Manager\Shared\Infrastructure\Console\Outbox\PublishOutboxCommand;
+use Manager\Shared\Infrastructure\Console\Outbox\RequeueOutboxCommand;
 
 return Application::configure(basePath: dirname(__DIR__))
 	->withRouting(
@@ -27,6 +28,7 @@ return Application::configure(basePath: dirname(__DIR__))
 		ConsumeRabbitMqDomainEventsCommand::class,
 		GenerateSupervisorRabbitMqConsumerFilesCommand::class,
 		PublishOutboxCommand::class,
+		RequeueOutboxCommand::class,
 	])
 	->withMiddleware(function (Middleware $middleware) {
 		//

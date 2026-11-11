@@ -33,7 +33,7 @@ enum OutboxStatus: string
 	private function allowedTransitions(): array
 	{
 		return match ($this) {
-			self::PENDING => [self::CLAIMED],
+			self::PENDING => [self::CLAIMED, self::FAILED],
 			self::CLAIMED => [self::CLAIMED, self::PENDING, self::PUBLISHED, self::FAILED],
 			self::PUBLISHED => [],
 			self::FAILED => [self::PENDING],

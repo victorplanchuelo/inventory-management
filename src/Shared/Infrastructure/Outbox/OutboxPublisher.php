@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use InvalidArgumentException;
 use RuntimeException;
+use Throwable;
 
 final readonly class OutboxPublisher
 {
@@ -22,6 +23,7 @@ final readonly class OutboxPublisher
 		private OutboxRepository $repository,
 		private OutboxEnvelopeSerializer $serializer,
 		private OutboxEventPublisher $publisher,
+		private OutboxRetryPolicy $retryPolicy,
 		private string $publisherId,
 	) {
 		if (trim($this->publisherId) === '') {
@@ -35,9 +37,10 @@ final readonly class OutboxPublisher
 			throw new InvalidArgumentException('The Outbox publish limit must be a positive integer.');
 		}
 
-		$processed = 0;
+		$published = 0;
+		$handled = 0;
 
-		while ($processed < $limit) {
+		while ($handled < $limit) {
 			$records = $this->repository->claim(self::CLAIM_BATCH_SIZE, $this->now(), $this->publisherId);
 
 			if ($records === []) {
@@ -45,25 +48,111 @@ final readonly class OutboxPublisher
 			}
 
 			foreach ($records as $record) {
+				if ($handled >= $limit) {
+					break;
+				}
+
+				$handled++;
+
 				$claimToken = $record->claimToken;
 
 				if ($claimToken === null) {
 					throw new RuntimeException(sprintf('The claimed Outbox record <%s> has no claim token.', $record->id));
 				}
 
-				$this->publisher->publish($record, $this->serializer->serialize($record));
-
-				if (!$this->repository->markPublished($record->id, $claimToken, $this->now())) {
-					throw new OutboxClaimLostException(
-						sprintf('The Outbox claim for record <%s> was lost before it could be marked as published.', $record->id)
-					);
+				if ($this->publishRecord($record, $claimToken)) {
+					$published++;
 				}
-
-				$processed++;
 			}
 		}
 
-		return $processed;
+		return $published;
+	}
+
+	private function publishRecord(OutboxRecord $record, string $claimToken): bool
+	{
+		try {
+			$envelope = $this->serializer->serialize($record);
+		} catch (OutboxSerializationException $exception) {
+			$this->markTerminal($record, $claimToken, $exception);
+
+			return false;
+		}
+
+		try {
+			$this->publisher->publish($record, $envelope);
+		} catch (OutboxPublicationException $exception) {
+			$this->handlePublicationFailure($record, $claimToken, $exception);
+
+			return false;
+		}
+
+		if (!$this->repository->markPublished($record->id, $claimToken, $this->now())) {
+			throw new OutboxClaimLostException(
+				sprintf('The Outbox claim for record <%s> was lost before it could be marked as published.', $record->id)
+			);
+		}
+
+		return true;
+	}
+
+	private function handlePublicationFailure(
+		OutboxRecord $record,
+		string $claimToken,
+		OutboxPublicationException $exception,
+	): void {
+		$now = $this->now();
+		$lastError = $this->describeError($exception);
+
+		if ($this->retryPolicy->isTerminal($record->attempts)) {
+			$this->markFailed($record, $claimToken, $now, $lastError);
+
+			return;
+		}
+
+		$scheduled = $this->repository->scheduleRetry(
+			$record->id,
+			$claimToken,
+			$this->retryPolicy->nextAttemptAt($now, $record->attempts),
+			$lastError
+		);
+
+		if (!$scheduled) {
+			throw new OutboxClaimLostException(
+				sprintf('The Outbox claim for record <%s> was lost before its retry could be scheduled.', $record->id)
+			);
+		}
+	}
+
+	private function markTerminal(OutboxRecord $record, string $claimToken, Throwable $exception): void
+	{
+		$this->markFailed($record, $claimToken, $this->now(), $this->describeError($exception));
+	}
+
+	private function markFailed(
+		OutboxRecord $record,
+		string $claimToken,
+		DateTimeImmutable $failedAt,
+		string $lastError,
+	): void {
+		if ($this->repository->markFailed($record->id, $claimToken, $failedAt, $lastError)) {
+			return;
+		}
+
+		throw new OutboxClaimLostException(
+			sprintf('The Outbox claim for record <%s> was lost before it could be marked as failed.', $record->id)
+		);
+	}
+
+	private function describeError(Throwable $exception): string
+	{
+		$message = trim($exception->getMessage());
+
+		if ($message === '') {
+			return $exception::class;
+		}
+
+		return sprintf('%s: %s', $exception::class, $message);
 	}
 
 	private function now(): DateTimeImmutable

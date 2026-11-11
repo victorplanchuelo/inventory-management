@@ -19,6 +19,7 @@ use Manager\Shared\Infrastructure\Outbox\OutboxEventPublisher;
 use Manager\Shared\Infrastructure\Outbox\OutboxProducerValidator;
 use Manager\Shared\Infrastructure\Outbox\OutboxPublisher;
 use Manager\Shared\Infrastructure\Outbox\OutboxRepository;
+use Manager\Shared\Infrastructure\Outbox\OutboxRetryPolicy;
 
 final class OutboxServiceProvider extends ServiceProvider
 {
@@ -61,6 +62,8 @@ final class OutboxServiceProvider extends ServiceProvider
 			static fn (): OutboxEnvelopeSerializer => new OutboxEnvelopeSerializer()
 		);
 
+		$this->app->singleton(OutboxRetryPolicy::class, static fn (): OutboxRetryPolicy => new OutboxRetryPolicy());
+
 		$this->app->singleton(OutboxEventPublisher::class, static function (): OutboxEventPublisher {
 			$configuration = config('queue.connections.rabbitmq');
 			$exchange = config('outbox.exchange');
@@ -81,6 +84,7 @@ final class OutboxServiceProvider extends ServiceProvider
 				$app->make(OutboxRepository::class),
 				$app->make(OutboxEnvelopeSerializer::class),
 				$app->make(OutboxEventPublisher::class),
+				$app->make(OutboxRetryPolicy::class),
 				sprintf('%s:%d', (string) gethostname(), (int) getmypid())
 			);
 		});

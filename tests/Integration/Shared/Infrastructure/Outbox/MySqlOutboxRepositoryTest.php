@@ -15,6 +15,7 @@ use Manager\Shared\Domain\ValueObject\SimpleUuid;
 use Manager\Shared\Infrastructure\Outbox\MySqlOutboxRepository;
 use Manager\Shared\Infrastructure\Outbox\OutboxConnectionFactory;
 use Manager\Shared\Infrastructure\Outbox\OutboxRecord;
+use Manager\Shared\Infrastructure\Outbox\OutboxRetryPolicy;
 use PHPUnit\Framework\Attributes\Test;
 use Ramsey\Uuid\Uuid;
 use Tests\Shared\Infrastructure\PhpUnit\InfrastructureTestCase;
@@ -267,6 +268,369 @@ final class MySqlOutboxRepositoryTest extends InfrastructureTestCase
 		$this->assertSame('2026-11-10 10:34:56', $second->occurredAt->format('Y-m-d H:i:s'));
 		$this->assertSame(2, $second->attempts);
 		$this->assertNotSame($first->claimToken, $second->claimToken);
+	}
+
+	#[Test]
+	public function it_should_schedule_a_retry_with_the_current_claim_token(): void
+	{
+		$message = $this->append();
+		$record = $this->repository->claim(10, $this->now(), 'publisher-a')[0];
+		$claimToken = (string) $record->claimToken;
+		$nextAttemptAt = $this->now()->modify('+5 seconds');
+		$lastError = 'OutboxPublicationException: RabbitMQ confirmation timed out.';
+
+		$this->assertFalse($this->repository->scheduleRetry($record->id, 'wrong-token', $nextAttemptAt, $lastError));
+
+		$stillClaimed = $this->row($message->eventId());
+
+		$this->assertSame('claimed', $stillClaimed['status']);
+		$this->assertSame($claimToken, $stillClaimed['claim_token']);
+
+		$this->assertTrue($this->repository->scheduleRetry($record->id, $claimToken, $nextAttemptAt, $lastError));
+
+		$row = $this->row($message->eventId());
+
+		$this->assertSame('pending', $row['status']);
+		$this->assertSame('2026-11-10 12:00:05', $row['next_attempt_at']);
+		$this->assertSame($lastError, $row['last_error']);
+		$this->assertSame(1, (int) $row['attempts']);
+		$this->assertNull($row['published_at']);
+		$this->assertNull($row['locked_at']);
+		$this->assertNull($row['claim_token']);
+		$this->assertNull($row['publisher_id']);
+		$this->assertNull($row['failed_at']);
+
+		$this->assertSame([], $this->repository->claim(10, $this->now(), 'publisher-b'));
+
+		$retried = $this->repository->claim(10, $this->now()->modify('+5 seconds'), 'publisher-b');
+
+		$this->assertCount(1, $retried);
+		$this->assertSame(2, $retried[0]->attempts);
+		$this->assertSame($message->eventId(), $retried[0]->eventId);
+	}
+
+	#[Test]
+	public function it_should_fence_retry_scheduling_with_the_current_claim_token(): void
+	{
+		$message = $this->append();
+		$firstClaim = $this->repository->claim(10, $this->now(), 'publisher-a')[0];
+		$firstToken = (string) $firstClaim->claimToken;
+
+		$this->update($message->eventId(), [
+			'locked_at' => '2026-11-10 11:58:59',
+		]);
+
+		$secondClaim = $this->repository->claim(10, $this->now(), 'publisher-b')[0];
+		$secondToken = (string) $secondClaim->claimToken;
+
+		$this->assertNotSame($firstToken, $secondToken);
+		$this->assertFalse(
+			$this->repository->scheduleRetry(
+				$firstClaim->id,
+				$firstToken,
+				$this->now()->modify('+5 seconds'),
+				'stale publisher'
+			)
+		);
+
+		$stillClaimed = $this->row($message->eventId());
+
+		$this->assertSame('claimed', $stillClaimed['status']);
+		$this->assertSame($secondToken, $stillClaimed['claim_token']);
+		$this->assertSame(2, (int) $stillClaimed['attempts']);
+
+		$this->assertTrue(
+			$this->repository->scheduleRetry(
+				$secondClaim->id,
+				$secondToken,
+				$this->now()->modify('+10 seconds'),
+				'current publisher'
+			)
+		);
+
+		$row = $this->row($message->eventId());
+
+		$this->assertSame('pending', $row['status']);
+		$this->assertSame(2, (int) $row['attempts']);
+		$this->assertSame('2026-11-10 12:00:10', $row['next_attempt_at']);
+		$this->assertNull($row['claim_token']);
+	}
+
+	#[Test]
+	public function it_should_refuse_to_schedule_a_retry_at_the_attempt_limit(): void
+	{
+		$message = $this->append();
+
+		$this->update($message->eventId(), [
+			'attempts' => OutboxRetryPolicy::MAX_ATTEMPTS - 1,
+		]);
+
+		$record = $this->repository->claim(10, $this->now(), 'publisher-a')[0];
+		$claimToken = (string) $record->claimToken;
+
+		$this->assertSame(OutboxRetryPolicy::MAX_ATTEMPTS, $record->attempts);
+		$this->assertFalse(
+			$this->repository->scheduleRetry(
+				$record->id,
+				$claimToken,
+				$this->now()->modify('+5 seconds'),
+				'retry at the attempt limit'
+			)
+		);
+
+		$row = $this->row($message->eventId());
+
+		$this->assertSame('claimed', $row['status']);
+		$this->assertSame(OutboxRetryPolicy::MAX_ATTEMPTS, (int) $row['attempts']);
+		$this->assertSame($claimToken, $row['claim_token']);
+		$this->assertNull($row['next_attempt_at']);
+
+		$this->assertTrue($this->repository->markFailed($record->id, $claimToken, $this->now(), 'terminal failure'));
+
+		$failed = $this->row($message->eventId());
+
+		$this->assertSame('failed', $failed['status']);
+		$this->assertSame('2026-11-10 12:00:00', $failed['failed_at']);
+	}
+
+	#[Test]
+	public function it_should_mark_a_claimed_record_as_failed_with_the_current_claim_token(): void
+	{
+		$message = $this->append();
+		$record = $this->repository->claim(10, $this->now(), 'publisher-a')[0];
+		$claimToken = (string) $record->claimToken;
+		$lastError = 'OutboxSerializationException: The envelope could not be serialized.';
+
+		$this->assertFalse($this->repository->markFailed($record->id, 'wrong-token', $this->now(), $lastError));
+
+		$stillClaimed = $this->row($message->eventId());
+
+		$this->assertSame('claimed', $stillClaimed['status']);
+		$this->assertSame($claimToken, $stillClaimed['claim_token']);
+
+		$this->assertTrue($this->repository->markFailed($record->id, $claimToken, $this->now(), $lastError));
+
+		$row = $this->row($message->eventId());
+
+		$this->assertSame('failed', $row['status']);
+		$this->assertSame('2026-11-10 12:00:00', $row['failed_at']);
+		$this->assertSame($lastError, $row['last_error']);
+		$this->assertSame(1, (int) $row['attempts']);
+		$this->assertNull($row['published_at']);
+		$this->assertNull($row['next_attempt_at']);
+		$this->assertNull($row['locked_at']);
+		$this->assertNull($row['claim_token']);
+		$this->assertNull($row['publisher_id']);
+
+		$this->assertSame([], $this->repository->claim(10, $this->now(), 'publisher-b'));
+	}
+
+	#[Test]
+	public function it_should_fence_terminal_failure_with_the_current_claim_token(): void
+	{
+		$message = $this->append();
+		$firstClaim = $this->repository->claim(10, $this->now(), 'publisher-a')[0];
+		$firstToken = (string) $firstClaim->claimToken;
+
+		$this->update($message->eventId(), [
+			'locked_at' => '2026-11-10 11:58:59',
+		]);
+
+		$secondClaim = $this->repository->claim(10, $this->now(), 'publisher-b')[0];
+		$secondToken = (string) $secondClaim->claimToken;
+
+		$this->assertFalse($this->repository->markFailed($firstClaim->id, $firstToken, $this->now(), 'stale publisher'));
+
+		$stillClaimed = $this->row($message->eventId());
+
+		$this->assertSame('claimed', $stillClaimed['status']);
+		$this->assertSame($secondToken, $stillClaimed['claim_token']);
+
+		$this->assertTrue(
+			$this->repository->markFailed($secondClaim->id, $secondToken, $this->now(), 'current publisher')
+		);
+
+		$row = $this->row($message->eventId());
+
+		$this->assertSame('failed', $row['status']);
+		$this->assertSame(2, (int) $row['attempts']);
+		$this->assertSame('current publisher', $row['last_error']);
+		$this->assertNull($row['claim_token']);
+	}
+
+	#[Test]
+	public function it_should_transition_an_expired_claim_at_the_attempt_limit_to_failed(): void
+	{
+		$payload = '{ "sku" : "A-1", "unicode" : "Málaga 🐢" }';
+		$message = $this->append(payload: $payload);
+
+		$this->update($message->eventId(), [
+			'status' => 'claimed',
+			'attempts' => OutboxRetryPolicy::MAX_ATTEMPTS,
+			'locked_at' => '2026-11-10 11:58:59',
+			'claim_token' => 'old-expired-token',
+			'publisher_id' => 'old-publisher',
+			'last_error' => null,
+		]);
+
+		$this->assertSame([], $this->repository->claim(10, $this->now(), 'publisher-a'));
+
+		$row = $this->row($message->eventId());
+
+		$this->assertSame('failed', $row['status']);
+		$this->assertSame(OutboxRetryPolicy::MAX_ATTEMPTS, (int) $row['attempts']);
+		$this->assertSame('2026-11-10 12:00:00', $row['failed_at']);
+		$this->assertStringContainsString(
+			sprintf('maximum of %d publication attempts', OutboxRetryPolicy::MAX_ATTEMPTS),
+			(string) $row['last_error']
+		);
+		$this->assertSame($message->eventId(), $row['event_id']);
+		$this->assertSame($payload, $row['payload']);
+		$this->assertNull($row['published_at']);
+		$this->assertNull($row['next_attempt_at']);
+		$this->assertNull($row['locked_at']);
+		$this->assertNull($row['claim_token']);
+		$this->assertNull($row['publisher_id']);
+	}
+
+	#[Test]
+	public function it_should_transition_a_pending_record_at_the_attempt_limit_to_failed(): void
+	{
+		$payload = '{ "sku" : "A-1", "unicode" : "Málaga 🐢" }';
+		$message = $this->append(payload: $payload);
+		$lastError = 'OutboxPublicationException: RabbitMQ confirmation timed out.';
+
+		$this->update($message->eventId(), [
+			'attempts' => OutboxRetryPolicy::MAX_ATTEMPTS,
+			'next_attempt_at' => '2026-11-10 12:05:00',
+			'last_error' => $lastError,
+		]);
+
+		$this->assertSame([], $this->repository->claim(10, $this->now(), 'publisher-a'));
+
+		$row = $this->row($message->eventId());
+
+		$this->assertSame('failed', $row['status']);
+		$this->assertSame(OutboxRetryPolicy::MAX_ATTEMPTS, (int) $row['attempts']);
+		$this->assertSame('2026-11-10 12:00:00', $row['failed_at']);
+		$this->assertSame($lastError, $row['last_error']);
+		$this->assertSame($message->eventId(), $row['event_id']);
+		$this->assertSame($payload, $row['payload']);
+		$this->assertNull($row['published_at']);
+		$this->assertNull($row['next_attempt_at']);
+		$this->assertNull($row['locked_at']);
+		$this->assertNull($row['claim_token']);
+		$this->assertNull($row['publisher_id']);
+	}
+
+	#[Test]
+	public function it_should_bound_exhausted_record_recovery_by_the_claim_limit(): void
+	{
+		$oldest = $this->append();
+		$middle = $this->append();
+		$newest = $this->append();
+
+		$this->update($oldest->eventId(), [
+			'attempts' => OutboxRetryPolicy::MAX_ATTEMPTS,
+			'next_attempt_at' => '2026-11-10 12:05:00',
+			'created_at' => '2026-11-10 10:00:00',
+		]);
+		$this->update($middle->eventId(), [
+			'attempts' => OutboxRetryPolicy::MAX_ATTEMPTS,
+			'next_attempt_at' => '2026-11-10 12:05:00',
+			'created_at' => '2026-11-10 10:01:00',
+		]);
+		$this->update($newest->eventId(), [
+			'attempts' => OutboxRetryPolicy::MAX_ATTEMPTS,
+			'next_attempt_at' => '2026-11-10 12:05:00',
+			'created_at' => '2026-11-10 10:02:00',
+		]);
+
+		$this->assertSame([], $this->repository->claim(2, $this->now(), 'publisher-a'));
+
+		$this->assertSame('failed', $this->row($oldest->eventId())['status']);
+		$this->assertSame('failed', $this->row($middle->eventId())['status']);
+		$this->assertSame('pending', $this->row($newest->eventId())['status']);
+
+		$this->assertSame([], $this->repository->claim(2, $this->now(), 'publisher-a'));
+
+		$this->assertSame('failed', $this->row($newest->eventId())['status']);
+	}
+
+	#[Test]
+	public function it_should_requeue_a_failed_record_preserving_identity_payload_and_last_error(): void
+	{
+		$payload = '{ "sku" : "A-1", "unicode" : "Málaga 🐢" }';
+		$message = $this->append(payload: $payload);
+		$lastError = 'OutboxPublicationException: RabbitMQ confirmation timed out.';
+
+		$this->update($message->eventId(), [
+			'status' => 'failed',
+			'attempts' => OutboxRetryPolicy::MAX_ATTEMPTS,
+			'failed_at' => '2026-11-10 11:55:00',
+			'next_attempt_at' => null,
+			'locked_at' => '2026-11-10 11:50:00',
+			'claim_token' => 'stale-token',
+			'publisher_id' => 'stale-publisher',
+			'last_error' => $lastError,
+		]);
+
+		$this->assertTrue($this->repository->requeueFailed($message->eventId()));
+
+		$row = $this->row($message->eventId());
+
+		$this->assertSame('pending', $row['status']);
+		$this->assertSame(0, (int) $row['attempts']);
+		$this->assertSame($message->eventId(), $row['event_id']);
+		$this->assertSame($payload, $row['payload']);
+		$this->assertSame($lastError, $row['last_error']);
+		$this->assertSame('2026-11-10 10:34:56', $row['occurred_at']);
+		$this->assertNull($row['published_at']);
+		$this->assertNull($row['next_attempt_at']);
+		$this->assertNull($row['failed_at']);
+		$this->assertNull($row['locked_at']);
+		$this->assertNull($row['claim_token']);
+		$this->assertNull($row['publisher_id']);
+
+		$this->assertFalse($this->repository->requeueFailed($message->eventId()));
+	}
+
+	#[Test]
+	public function it_should_prevent_a_stale_claim_from_overwriting_state_after_requeue(): void
+	{
+		$message = $this->append();
+		$record = $this->repository->claim(10, $this->now(), 'publisher-a')[0];
+		$claimToken = (string) $record->claimToken;
+
+		$this->assertTrue($this->repository->markFailed($record->id, $claimToken, $this->now(), 'terminal failure'));
+		$this->assertTrue($this->repository->requeueFailed($message->eventId()));
+
+		$this->assertFalse($this->repository->markPublished($record->id, $claimToken, $this->now()));
+		$this->assertFalse(
+			$this->repository->scheduleRetry($record->id, $claimToken, $this->now()->modify('+5 seconds'), 'stale retry')
+		);
+		$this->assertFalse($this->repository->markFailed($record->id, $claimToken, $this->now(), 'stale failure'));
+
+		$row = $this->row($message->eventId());
+
+		$this->assertSame('pending', $row['status']);
+		$this->assertSame(0, (int) $row['attempts']);
+		$this->assertSame('terminal failure', $row['last_error']);
+		$this->assertNull($row['claim_token']);
+		$this->assertNull($row['locked_at']);
+	}
+
+	#[Test]
+	public function it_should_not_requeue_a_record_that_is_not_failed(): void
+	{
+		$message = $this->append();
+
+		$this->assertFalse($this->repository->requeueFailed($message->eventId()));
+
+		$row = $this->row($message->eventId());
+
+		$this->assertSame('pending', $row['status']);
+		$this->assertSame(0, (int) $row['attempts']);
 	}
 
 	#[Test]

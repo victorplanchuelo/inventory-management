@@ -32,6 +32,7 @@ final class OutboxStatusTest extends UnitTestCase
 	public static function allowedTransitions(): iterable
 	{
 		yield 'pending to claimed' => [OutboxStatus::PENDING, OutboxStatus::CLAIMED];
+		yield 'pending to failed on exhaustion' => [OutboxStatus::PENDING, OutboxStatus::FAILED];
 		yield 'claimed to claimed on reclaim' => [OutboxStatus::CLAIMED, OutboxStatus::CLAIMED];
 		yield 'claimed to pending on retry' => [OutboxStatus::CLAIMED, OutboxStatus::PENDING];
 		yield 'claimed to published' => [OutboxStatus::CLAIMED, OutboxStatus::PUBLISHED];
@@ -49,7 +50,6 @@ final class OutboxStatusTest extends UnitTestCase
 	public static function disallowedTransitions(): iterable
 	{
 		yield 'pending to published' => [OutboxStatus::PENDING, OutboxStatus::PUBLISHED];
-		yield 'pending to failed' => [OutboxStatus::PENDING, OutboxStatus::FAILED];
 		yield 'pending to pending' => [OutboxStatus::PENDING, OutboxStatus::PENDING];
 		yield 'claimed to nothing published twice' => [OutboxStatus::PUBLISHED, OutboxStatus::CLAIMED];
 		yield 'published to failed' => [OutboxStatus::PUBLISHED, OutboxStatus::FAILED];
