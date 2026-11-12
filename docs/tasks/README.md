@@ -17,11 +17,11 @@ Each task describes a bounded piece of work derived from the project requirement
 
 The table describes the documents currently present. It is not a commitment to execute tasks in numerical order. Execution order must respect the actual dependencies and the implementation plan approved for each task.
 
-**Task 003 verification note:** `Verified` means that the automated checks and acceptance criteria were verified on 2026-11-11. Human review and approval are still pending; the status is not a human sign-off.
+**Task 003 verification note:** `Verified` means that the automated checks and acceptance criteria were verified on 2026-11-11 and the technical review was approved on 2026-11-12. The implementation is committed as `c55984d` and pushed to `origin/feature/stockflow-foundation`.
 
 **Current implementation focus:** none. No task is currently approved for implementation.
 
-Tasks 001, 002 and 003 have been implemented. Task 003 has completed automated verification; its human review remains pending. Task 004 remains proposed and requires explicit approval before implementation starts.
+Tasks 001, 002 and 003 have been implemented and verified. Task 003 has been reviewed, committed and pushed. Task 004 remains proposed and requires explicit approval before implementation starts.
 
 Future capabilities must not be treated as current implementation scope merely because they appear in requirements, ADRs or proposed task documents.
 
@@ -94,7 +94,7 @@ Implementation must not begin before the plan has been explicitly approved.
 - **Approved:** scope and implementation plan explicitly approved.
 - **In Progress:** implementation has started within the approved scope.
 - **Implemented:** implementation changes have been completed.
-- **Verified:** required checks and acceptance criteria have been verified.
+- **Verified:** required checks and acceptance criteria have been verified, and the technical review has been approved.
 - **Blocked:** progress requires an unresolved dependency or decision.
 
 A task must not be marked as approved merely because its specification exists. A task must not be marked as verified without actual verification.

@@ -2,7 +2,9 @@
 
 **Status:** Verified
 
-**Review status:** Technical verification and the automated acceptance checks are complete (2026-11-11). Human review and approval are still pending. `Verified` in this document means technical verification, not human sign-off.
+**Review status:** Technical verification and the automated acceptance checks are complete (2026-11-11). The technical review was approved on 2026-11-12.
+
+**Delivery:** Committed as `c55984d` and pushed to `origin/feature/stockflow-foundation`.
 
 **Scope:** Shared infrastructure and bounded-context integration
 
