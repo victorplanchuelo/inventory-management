@@ -19,6 +19,7 @@ System structure, domain model and architectural conventions:
 - `architecture/architecture.md`: overall architecture and bounded-context relationships.
 - `architecture/domain-model.md`: domain concepts, aggregates, responsibilities and invariants.
 - `architecture/architectural-reference.md`: implementation conventions and architectural patterns.
+- `architecture/outbox-operations.md`: operational runbook for the Transactional Outbox, publisher supervision, monitoring, retries, retention and purge.
 
 ## Architecture Decision Records
 
@@ -71,7 +72,8 @@ docs/
 ├── architecture/
 │   ├── architecture.md
 │   ├── domain-model.md
-│   └── architectural-reference.md
+│   ├── architectural-reference.md
+│   └── outbox-operations.md
 ├── adr/
 │   ├── 001-modular-monolith.md
 │   ├── 002-atomic-stock-reservation.md

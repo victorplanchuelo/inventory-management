@@ -52,14 +52,34 @@ final class OutboxRetryPolicyTest extends UnitTestCase
 	}
 
 	#[Test]
-	public function it_should_refuse_to_schedule_an_eleventh_publication_attempt(): void
+	public function it_should_refuse_to_schedule_an_attempt_beyond_the_configured_limit(): void
 	{
 		$policy = new OutboxRetryPolicy();
 
 		$this->expectException(InvalidArgumentException::class);
-		$this->expectExceptionMessage('eleventh');
+		$this->expectExceptionMessage('attempt 11 of 10');
 
 		$policy->nextAttemptAt(new DateTimeImmutable('2026-11-10 12:00:00', new DateTimeZone('UTC')), 10);
+	}
+
+	#[Test]
+	public function it_should_use_the_configured_attempt_limit_and_backoff(): void
+	{
+		$policy = new OutboxRetryPolicy(3, 2, 3, 10);
+		$failedAt = new DateTimeImmutable('2026-11-10 12:00:00', new DateTimeZone('UTC'));
+
+		$this->assertFalse($policy->isTerminal(2));
+		$this->assertTrue($policy->isTerminal(3));
+		$this->assertSame(2, $policy->nextAttemptAt($failedAt, 1)->getTimestamp() - $failedAt->getTimestamp());
+		$this->assertSame(6, $policy->nextAttemptAt($failedAt, 2)->getTimestamp() - $failedAt->getTimestamp());
+	}
+
+	#[Test]
+	public function it_should_reject_an_invalid_retry_configuration(): void
+	{
+		$this->expectException(InvalidArgumentException::class);
+
+		new OutboxRetryPolicy(0);
 	}
 
 	#[Test]

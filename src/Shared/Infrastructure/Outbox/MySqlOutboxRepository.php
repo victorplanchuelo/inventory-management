@@ -8,7 +8,9 @@ use DateTimeImmutable;
 use DateTimeZone;
 use Illuminate\Database\Connection;
 use InvalidArgumentException;
+use Manager\Shared\Application\Outbox\OutboxFailure;
 use Manager\Shared\Application\Outbox\OutboxStatus;
+use Manager\Shared\Application\Outbox\OutboxStatusSnapshot;
 use RuntimeException;
 
 final readonly class MySqlOutboxRepository implements OutboxRepository
@@ -18,6 +20,7 @@ final readonly class MySqlOutboxRepository implements OutboxRepository
 	public function __construct(
 		private Connection $connection,
 		private int $leaseSeconds,
+		private OutboxErrorSanitizer $errorSanitizer,
 		private int $maxAttempts = OutboxRetryPolicy::MAX_ATTEMPTS,
 	) {
 		if ($this->leaseSeconds < 1) {
@@ -69,6 +72,8 @@ final readonly class MySqlOutboxRepository implements OutboxRepository
 		DateTimeImmutable $nextAttemptAt,
 		string $lastError,
 	): bool {
+		$lastError = $this->errorSanitizer->sanitize($lastError);
+
 		$updated = $this->connection->table('outbox')
 			->where('id', $recordId)
 			->where('claim_token', $claimToken)
@@ -94,6 +99,8 @@ final readonly class MySqlOutboxRepository implements OutboxRepository
 		DateTimeImmutable $failedAt,
 		string $lastError,
 	): bool {
+		$lastError = $this->errorSanitizer->sanitize($lastError);
+
 		$updated = $this->connection->table('outbox')
 			->where('id', $recordId)
 			->where('claim_token', $claimToken)
@@ -129,6 +136,66 @@ final readonly class MySqlOutboxRepository implements OutboxRepository
 			]);
 
 		return $updated === 1;
+	}
+
+	public function status(DateTimeImmutable $now, int $recentFailureLimit = 10): OutboxStatusSnapshot
+	{
+		if ($recentFailureLimit < 1) {
+			throw new InvalidArgumentException('The Outbox recent failure limit must be a positive integer.');
+		}
+
+		$now = $now->setTimezone(new DateTimeZone('UTC'));
+		$nowValue = $this->formatDate($now);
+		$staleBefore = $this->formatDate($now->modify(sprintf('-%d seconds', $this->leaseSeconds)));
+
+		$row = (array) $this->connection->selectOne(
+			'SELECT
+				COALESCE(SUM(status = ?), 0) AS pending_count,
+				COALESCE(SUM(status = ?), 0) AS claimed_count,
+				COALESCE(SUM(status = ?), 0) AS published_count,
+				COALESCE(SUM(status = ?), 0) AS failed_count,
+				COALESCE(SUM(status = ? AND next_attempt_at IS NOT NULL AND next_attempt_at > ?), 0) AS retrying_count,
+				MIN(CASE WHEN status = ? THEN created_at END) AS oldest_pending_created_at,
+				COALESCE(SUM(status = ? AND locked_at IS NOT NULL AND locked_at <= ?), 0) AS stale_claims,
+				COUNT(DISTINCT CASE WHEN status = ? AND locked_at > ? THEN publisher_id END) AS active_publishers,
+				MAX(published_at) AS last_published_at
+			FROM outbox',
+			[
+				OutboxStatus::PENDING->value,
+				OutboxStatus::CLAIMED->value,
+				OutboxStatus::PUBLISHED->value,
+				OutboxStatus::FAILED->value,
+				OutboxStatus::PENDING->value,
+				$nowValue,
+				OutboxStatus::PENDING->value,
+				OutboxStatus::CLAIMED->value,
+				$staleBefore,
+				OutboxStatus::CLAIMED->value,
+				$staleBefore,
+			]
+		);
+
+		return new OutboxStatusSnapshot(
+			pending: (int) ($row['pending_count'] ?? 0),
+			claimed: (int) ($row['claimed_count'] ?? 0),
+			published: (int) ($row['published_count'] ?? 0),
+			failed: (int) ($row['failed_count'] ?? 0),
+			retrying: (int) ($row['retrying_count'] ?? 0),
+			oldestPendingCreatedAt: $this->optionalDate($row['oldest_pending_created_at'] ?? null),
+			staleClaims: (int) ($row['stale_claims'] ?? 0),
+			activePublishers: (int) ($row['active_publishers'] ?? 0),
+			lastPublishedAt: $this->optionalDate($row['last_published_at'] ?? null),
+			recentFailures: $this->recentFailures($recentFailureLimit),
+		);
+	}
+
+	public function purgePublishedBefore(DateTimeImmutable $cutoff): int
+	{
+		return (int) $this->connection->table('outbox')
+			->where('status', OutboxStatus::PUBLISHED->value)
+			->whereNotNull('published_at')
+			->where('published_at', '<', $this->formatDate($cutoff))
+			->delete();
 	}
 
 	/** @return list<OutboxRecord> */
@@ -231,6 +298,8 @@ final readonly class MySqlOutboxRepository implements OutboxRepository
 				$lastError = sprintf('The Outbox record exhausted its maximum of %d publication attempts.', $this->maxAttempts);
 			}
 
+			$lastError = $this->errorSanitizer->sanitize($lastError);
+
 			$query = $this->connection->table('outbox')
 				->where('id', (string) $values['id'])
 				->where('status', $status)
@@ -260,6 +329,53 @@ final readonly class MySqlOutboxRepository implements OutboxRepository
 	private function claimToken(): string
 	{
 		return \Manager\Shared\Domain\ValueObject\SimpleUuid::random()->value();
+	}
+
+	/** @return list<OutboxFailure> */
+	private function recentFailures(int $limit): array
+	{
+		$rows = $this->connection->select(
+			sprintf(
+				'SELECT event_id, event_name, producer, aggregate_type, aggregate_id, attempts, status, failed_at, next_attempt_at, last_error
+				FROM outbox
+				WHERE status IN (?, ?)
+					AND last_error IS NOT NULL
+					AND last_error <> ?
+				ORDER BY COALESCE(failed_at, created_at) DESC, id DESC
+				LIMIT %d',
+				$limit
+			),
+			[OutboxStatus::FAILED->value, OutboxStatus::PENDING->value, '']
+		);
+
+		$failures = [];
+
+		foreach ($rows as $row) {
+			$values = (array) $row;
+			$failures[] = new OutboxFailure(
+				(string) $values['event_id'],
+				(string) $values['event_name'],
+				(string) $values['producer'],
+				(string) $values['aggregate_type'],
+				(string) $values['aggregate_id'],
+				(int) $values['attempts'],
+				OutboxStatus::from((string) $values['status']),
+				$this->optionalDate($values['failed_at'] ?? null),
+				$this->optionalDate($values['next_attempt_at'] ?? null),
+				$this->errorSanitizer->sanitize((string) $values['last_error']),
+			);
+		}
+
+		return $failures;
+	}
+
+	private function optionalDate(mixed $value): ?DateTimeImmutable
+	{
+		if (!is_string($value) || $value === '') {
+			return null;
+		}
+
+		return new DateTimeImmutable($value, new DateTimeZone('UTC'));
 	}
 
 	private function formatDate(DateTimeImmutable $date): string

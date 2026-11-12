@@ -2,7 +2,7 @@
 name: "transactional-outbox-integration-infrastructure"
 description: "Implement shared Transactional Outbox and RabbitMQ integration-event publication infrastructure with atomic persistence, claim fencing, deterministic serialization, retries and operational tooling."
 created_at: "2026-11-10"
-status: "Proposed"
+status: "Implemented"
 implemented_by:
   tool: "OpenCode"
   model:
@@ -10,8 +10,8 @@ implemented_by:
     version: "4.1"
     reasoning_effort: "medium"
 
-last_implementation_at: "2026-11-11T10:05:31Z"
-has_completed_all_phases: false
+last_implementation_at: "2026-11-11T11:42:33Z"
+has_completed_all_phases: true
 ---
 
 # Transactional Outbox and Integration Infrastructure
@@ -970,7 +970,7 @@ Terminal failures may only be removed through an explicit operator action with c
 Complete `config/outbox.php` with:
 
 - `producers`.
-- Database connection selection.
+- Database connection documentation: the Outbox is fixed to the application's default connection, and no independent Outbox connection is configurable.
 - Exchange name.
 - Lease duration.
 - Default publish batch.
@@ -988,12 +988,12 @@ Log per record:
 - Aggregate type.
 - Aggregate ID.
 - Attempt number.
-- Error class and message.
+- Error class and sanitized message.
 - Connection failure details where applicable.
 
 Log a batch summary.
 
-Never log payload contents, credentials or secrets.
+Never log payload contents, credentials or secrets. Treat exception messages as untrusted input and apply a reusable sanitization policy before persisting `last_error`, writing logs or rendering status errors. The policy must redact credentials, passwords, tokens, authorization headers, private keys and similar secrets, and must normalize CR/LF, tabs and other non-printable control characters to prevent log forging. Payload-content sensitivity remains the responsibility of each producing bounded context.
 
 ### Operational runbook
 
@@ -1042,22 +1042,26 @@ Integration:
 - Retrying bucket is correct.
 - Oldest pending age is correct.
 - Payload values are never included in status output or logs.
+- Secrets embedded in exception messages are redacted before persistence, logging and status display.
+- Control characters embedded in exception messages are normalized to single spaces, preventing log forging.
+- Legacy stored errors are redacted when reported.
 
 ### Phase 4 completion checklist
 
-- [ ] Implement the status command.
-- [ ] Implement published-only purge.
-- [ ] Add configurable retention.
-- [ ] Add structured logging without payload values.
-- [ ] Write the Outbox operational runbook.
-- [ ] Update the documentation index.
-- [ ] Update Task003 status and acceptance criteria only after verification.
-- [ ] Update the task index.
-- [ ] Add the implementation log entry with real results.
-- [ ] Add unit and integration tests for status and purge.
-- [ ] Run PHPUnit, ECS and PHPStan inside Sail.
-- [ ] Do not extend the PHPStan baseline.
-- [ ] STOP and present the full diff and verification results for review.
+- [x] Implement the status command.
+- [x] Implement published-only purge.
+- [x] Add configurable retention.
+- [x] Add structured logging without payload values.
+- [x] Add and apply a reusable error-sanitization policy before persistence, logging and display.
+- [x] Write the Outbox operational runbook.
+- [x] Update the documentation index.
+- [x] Update Task003 status and acceptance criteria only after verification.
+- [x] Update the task index.
+- [x] Add the implementation log entry with real results.
+- [x] Add unit and integration tests for status and purge.
+- [x] Run PHPUnit, PHPStan and targeted ECS over the changed files inside the app container; full-project ECS retains pre-existing legacy findings.
+- [x] Do not extend the PHPStan baseline.
+- [x] STOP and present the full diff and verification results for review.
 
 ## 9. Cross-phase verification requirements
 
@@ -1087,27 +1091,27 @@ Task003 can be marked Verified only when all applicable criteria below have been
 
 ### Persistence and transaction guarantees
 
-- [ ] One shared Outbox table exists.
-- [ ] Producer ownership is validated against configuration.
-- [ ] Event ID is unique.
-- [ ] Payload is validated and stored as text without representation replacement.
-- [ ] Business and Outbox writes share the same connection object and transaction.
-- [ ] Commit and rollback behaviour is verified against real MySQL.
+- [x] One shared Outbox table exists.
+- [x] Producer ownership is validated against configuration.
+- [x] Event ID is unique.
+- [x] Payload is validated and stored as text without representation replacement.
+- [x] Business and Outbox writes share the same connection object and transaction.
+- [x] Commit and rollback behaviour is verified against real MySQL.
 
 ### Publisher and reliability
 
-- [ ] Claims are exclusive under concurrent MySQL connections.
-- [ ] Every claim attempt receives a new token.
-- [ ] Expired leases are recoverable.
+- [x] Claims are exclusive under concurrent MySQL connections.
+- [x] Every claim attempt receives a new token.
+- [x] Expired leases are recoverable.
 - [x] Stale publishers are fenced from all state-changing operations.
-- [ ] Envelope serialization is byte-stable.
-- [ ] Stored payload is inserted verbatim as a JSON value.
-- [ ] Lost claims are signaled and never reported as successfully transitioned.
-- [ ] RabbitMQ publication uses persistent delivery.
-- [ ] Positive broker confirmation is required.
-- [ ] Mandatory routing success is required.
-- [ ] Unroutable and negatively acknowledged messages are never marked published.
-- [ ] RabbitMQ behaviour is verified against the real broker.
+- [x] Envelope serialization is byte-stable.
+- [x] Stored payload is inserted verbatim as a JSON value.
+- [x] Lost claims are signaled and never reported as successfully transitioned.
+- [x] RabbitMQ publication uses persistent delivery.
+- [x] Positive broker confirmation is required.
+- [x] Mandatory routing success is required.
+- [x] Unroutable and negatively acknowledged messages are never marked published.
+- [x] RabbitMQ behaviour is verified against the real broker.
 
 ### Failure handling
 
@@ -1125,31 +1129,30 @@ Task003 can be marked Verified only when all applicable criteria below have been
 
 ### Operations
 
-- [ ] All four CLI commands are registered and tested.
-- [ ] Publisher execution and supervision are documented.
-- [ ] Status metrics are correct.
-- [ ] Payload and secrets are redacted from logs and output.
-- [ ] Purge only deletes eligible published records.
-- [ ] Failed records are never automatically purged.
-- [ ] Retention policy and consequences are documented.
+- [x] All four CLI commands are registered and tested.
+- [x] Publisher execution and supervision are documented.
+- [x] Status metrics are correct.
+- [x] Payload contents are excluded from logs and status output.
+- [x] Credential-like values in error messages are redacted before persistence, logging and display.
+- [x] Purge only deletes eligible published records.
+- [x] Failed records are never automatically purged.
+- [x] Retention policy and consequences are documented.
 
 ### Architecture and documentation
 
-- [ ] Domain Events are not published directly.
-- [ ] No Inventory-specific mapping has been introduced.
-- [ ] OD-002 and OD-003 remain open.
-- [ ] No Inbox, projections, Saga or Event Sourcing implementation has been introduced.
-- [ ] Legacy User event behaviour remains unchanged.
-- [ ] Legacy RabbitMqEventBus behaviour remains unchanged.
-- [ ] Task003 documentation reflects only verified implementation.
-- [ ] Implementation log contains actual verification results.
+- [x] Domain Events are not published directly.
+- [x] No Inventory-specific mapping has been introduced.
+- [x] OD-002 and OD-003 remain open.
+- [x] No Inbox, projections, Saga or Event Sourcing implementation has been introduced.
+- [x] Legacy User event behaviour remains unchanged.
+- [x] Legacy RabbitMqEventBus behaviour remains unchanged.
+- [x] Task003 documentation reflects only verified implementation.
+- [x] Implementation log contains actual verification results.
 
 ## 11. Next step
 
-Phase 3 is implemented and verified. Phase 4 — Observability, retention, supervision and documentation — is next.
+Phase 4 is implemented and technically verified. All phases in this plan are complete. Task003 is marked Verified in `docs/tasks/003-transactional-outbox-and-integration-infrastructure.md`; that status means the automated checks and acceptance criteria have been verified. Human review and approval remain pending.
 
-Implement the status and purge commands, retention configuration, structured logging and operational documentation only when the user explicitly asks for Phase 4.
+Review the complete diff, test output, ECS and PHPStan results before approving any commit. No further implementation phase is planned for this plan.
 
-After completing Phase 4, stop and present the complete diff, test output, ECS and PHPStan results for review. Do not mark Task003 as verified until all acceptance criteria have actually been verified.
-
-Phase 3 retries scheduled and failures fenced thanks to [Codely](https://codely.com) AI tooling. 🔁 🧯 🧱 🔐 ✉️ 🐇
+Phase 4 exposes outbox health, bounds published retention and documents operations thanks to [Codely](https://codely.com) AI tooling. 📊 🧹 📕 🧭 🛰️ ✅

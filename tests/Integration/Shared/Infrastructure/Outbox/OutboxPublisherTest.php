@@ -19,9 +19,12 @@ use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\RabbitMqConfirmedPublisher;
 use Manager\Shared\Infrastructure\Outbox\MySqlOutboxRepository;
 use Manager\Shared\Infrastructure\Outbox\OutboxConnectionFactory;
 use Manager\Shared\Infrastructure\Outbox\OutboxEnvelopeSerializer;
+use Manager\Shared\Infrastructure\Outbox\OutboxErrorSanitizer;
 use Manager\Shared\Infrastructure\Outbox\OutboxPublisher;
+use Manager\Shared\Infrastructure\Outbox\OutboxPublisherLogger;
 use Manager\Shared\Infrastructure\Outbox\OutboxRetryPolicy;
 use PHPUnit\Framework\Attributes\Test;
+use Tests\Shared\Infrastructure\PhpUnit\CollectingLogger;
 use Tests\Shared\Infrastructure\PhpUnit\InfrastructureTestCase;
 
 final class OutboxPublisherTest extends InfrastructureTestCase
@@ -34,6 +37,7 @@ final class OutboxPublisherTest extends InfrastructureTestCase
 	private MySqlOutboxRepository $repository;
 	private RabbitMqConfirmedPublisher $rabbitMqPublisher;
 	private OutboxPublisher $publisher;
+	private CollectingLogger $logger;
 	private AMQPConnection $rabbitMqConnection;
 	private AMQPChannel $rabbitMqChannel;
 	private AMQPExchange $exchange;
@@ -71,13 +75,16 @@ final class OutboxPublisherTest extends InfrastructureTestCase
 		$this->exchange->declareExchange();
 
 		$this->rabbitMqPublisher = new RabbitMqConfirmedPublisher($configuration, $this->exchangeName, 5.0,);
-		$this->repository = new MySqlOutboxRepository($this->connection, 60);
+		$this->repository = new MySqlOutboxRepository($this->connection, 60, new OutboxErrorSanitizer());
+		$this->logger = new CollectingLogger();
 
 		$this->publisher = new OutboxPublisher(
 			$this->repository,
 			new OutboxEnvelopeSerializer(),
 			$this->rabbitMqPublisher,
 			new OutboxRetryPolicy(),
+			new OutboxPublisherLogger($this->logger, new OutboxErrorSanitizer()),
+			new OutboxErrorSanitizer(),
 			'publisher-test',
 		);
 	}
@@ -120,6 +127,22 @@ final class OutboxPublisherTest extends InfrastructureTestCase
 		$this->assertSame($message->eventId(), $envelope->getMessageId());
 		$this->assertSame('orders.order_confirmed', $envelope->getRoutingKey());
 		$this->assertSame(AMQP_DELIVERY_MODE_PERSISTENT, $envelope->getDeliveryMode());
+	}
+
+	#[Test]
+	public function it_should_log_publication_failures_without_the_payload(): void
+	{
+		$message = $this->append('{"orderId":"abc","secret":"PAYLOAD_SECRET_MARKER"}');
+
+		$this->assertSame(0, $this->publisher->publishBatch(10));
+
+		$log = $this->logger->json();
+
+		$this->assertStringContainsString('outbox.record.retry_scheduled', $log);
+		$this->assertStringContainsString($message->eventId(), $log);
+		$this->assertStringContainsString('OutboxPublicationException', $log);
+		$this->assertStringContainsString('outbox.batch.summary', $log);
+		$this->assertStringNotContainsString('PAYLOAD_SECRET_MARKER', $log);
 	}
 
 	#[Test]
@@ -305,7 +328,7 @@ final class OutboxPublisherTest extends InfrastructureTestCase
 		return $queue;
 	}
 
-	private function append(): OutboxMessage
+	private function append(string $payload = self::PAYLOAD): OutboxMessage
 	{
 		$eventId = SimpleUuid::random()->value();
 		$this->eventIds[] = $eventId;
@@ -317,7 +340,7 @@ final class OutboxPublisherTest extends InfrastructureTestCase
 			'orders',
 			'order',
 			self::AGGREGATE_ID,
-			self::PAYLOAD,
+			$payload,
 			new DateTimeImmutable('2026-11-10 10:34:56', new DateTimeZone('UTC')),
 			7,
 			'correlation-1',

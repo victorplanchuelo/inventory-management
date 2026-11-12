@@ -1,8 +1,14 @@
 # Task 003 — Transactional Outbox and Integration Infrastructure
 
-**Status:** Proposed  
-**Scope:** Shared infrastructure and bounded-context integration  
+**Status:** Verified
+
+**Review status:** Technical verification and the automated acceptance checks are complete (2026-11-11). Human review and approval are still pending. `Verified` in this document means technical verification, not human sign-off.
+
+**Scope:** Shared infrastructure and bounded-context integration
+
 **Phase:** Reliable Event Publication
+
+**Verification:** See the Task 003 entry in `docs/ai/implementation-log.md` and the operational runbook in `docs/architecture/outbox-operations.md`.
 
 ## 1. Objective
 
@@ -126,6 +132,8 @@ Consumers must not assume that every producer provides an aggregate version or t
 The existence of an integration event name does not imply a one-to-one mapping with a Domain Event. Each bounded context must explicitly define which Domain Events or application outcomes produce its Integration Events.
 
 The event payload must contain only information required by consumers. Sensitive information, credentials, and internal implementation details must not be published.
+
+This is a producer responsibility. Task 003 provides the Outbox storage, publication and operational infrastructure, but it does not define Inventory integration-event payloads or validate their business content. Each producing bounded context must ensure that the payloads it defines exclude sensitive information, credentials and internal implementation details.
 
 The stored event representation must allow the publisher to reproduce the same logical message on every retry, preserving its identity, contract name, version, metadata, and payload.
 
@@ -374,7 +382,9 @@ At minimum, it must be possible to identify:
 
 Logs must include event identifiers and useful correlation information where available.
 
-Sensitive payload values must not be written to logs.
+The Outbox infrastructure must not write stored payload contents to logs or status output. It must also treat error messages as untrusted input and redact credential-like values before persisting, logging or displaying them. A reusable error-sanitization policy covers URI credentials, passwords, tokens, authorization headers, private keys and common provider token formats. The policy must also normalize CR/LF, tabs and other non-printable control characters so an exception message cannot forge additional log or console lines.
+
+Payload-content sensitivity remains the responsibility of each producing bounded context. Shared infrastructure can guarantee that it does not log or display the stored payload, but it cannot guarantee that a producer has not placed sensitive information inside that payload. Task 003 introduces no producer mappings and therefore makes no claim about future producer-owned payload contents.
 
 Operational recovery must not require modifying business aggregate data manually.
 
@@ -421,27 +431,31 @@ Tests must use the actual persistence and RabbitMQ infrastructure required by th
 
 ## 13. Acceptance Criteria
 
-- [ ] Each bounded context owns its Outbox records.
-- [ ] Business state changes and Outbox records are persisted in the same transaction.
-- [ ] A failed transaction leaves neither the business change nor its Outbox record committed.
-- [ ] Integration events are stored independently of the original aggregate lifecycle.
-- [ ] Event identifiers remain stable across publication attempts.
-- [ ] The publisher can retrieve and claim pending records safely.
-- [ ] Concurrent publishers are supported.
-- [ ] Claim ownership is protected by a unique token or equivalent mechanism.
-- [ ] A publisher cannot update a record after its claim has expired or been reassigned.
-- [ ] Publisher claims can be recovered after process failure.
-- [ ] Records are marked as published only after positive broker confirmation and successful routing.
-- [ ] Persistent RabbitMQ delivery is configured and verified.
-- [ ] Temporary failures result in retryable records.
-- [ ] Terminal failures remain observable and recoverable.
-- [ ] A crash after broker publication does not cause the event to receive a new identity on retry.
-- [ ] RabbitMQ publication uses the agreed integration-event envelope.
-- [ ] The publisher does not require the original aggregate to exist or be loaded.
-- [ ] Sensitive information is excluded from integration-event payloads and logs.
-- [ ] The publisher execution and supervision mechanism is defined and implemented.
-- [ ] Unit and integration tests cover the required behaviour.
-- [ ] No Inbox, projection, or Event Sourcing implementation is introduced by this task.
+- [x] Each bounded context owns its Outbox records.
+- [x] Business state changes and Outbox records are persisted in the same transaction.
+- [x] A failed transaction leaves neither the business change nor its Outbox record committed.
+- [x] Integration events are stored independently of the original aggregate lifecycle.
+- [x] Event identifiers remain stable across publication attempts.
+- [x] The publisher can retrieve and claim pending records safely.
+- [x] Concurrent publishers are supported.
+- [x] Claim ownership is protected by a unique token or equivalent mechanism.
+- [x] A publisher cannot update a record after its claim has expired or been reassigned.
+- [x] Publisher claims can be recovered after process failure.
+- [x] Records are marked as published only after positive broker confirmation and successful routing.
+- [x] Persistent RabbitMQ delivery is configured and verified.
+- [x] Temporary failures result in retryable records.
+- [x] Terminal failures remain observable and recoverable.
+- [x] A crash after broker publication does not cause the event to receive a new identity on retry.
+- [x] RabbitMQ publication uses the agreed integration-event envelope.
+- [x] The publisher does not require the original aggregate to exist or be loaded.
+- [x] Outbox logs, status output and persisted error messages exclude stored payload contents.
+- [x] A reusable error-sanitization policy redacts credential-like values before errors are persisted, logged or displayed, and normalizes control characters to prevent log forging.
+- [x] No producer-owned integration-event payload content is introduced by this task; excluding sensitive information from future payloads remains the responsibility of each producing bounded context.
+- [x] The publisher execution and supervision mechanism is defined and implemented.
+- [x] Unit and integration tests cover the required behaviour.
+- [x] No Inbox, projection, or Event Sourcing implementation is introduced by this task.
+
+Payload-content sensitivity is not an infrastructure guarantee in this task. The shared infrastructure never logs or displays stored payloads and sanitizes error text, but each producing bounded context remains responsible for the contents of the integration-event payloads it defines.
 
 ## 14. Dependencies
 

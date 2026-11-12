@@ -66,6 +66,7 @@ final class OutboxCommandsTest extends InfrastructureTestCase
 		$this->queue->bind($this->exchangeName, '#');
 
 		config(['outbox.exchange' => $this->exchangeName]);
+		config(['outbox.published_retention_days' => 7]);
 	}
 
 	protected function tearDown(): void
@@ -243,7 +244,233 @@ final class OutboxCommandsTest extends InfrastructureTestCase
 			->assertFailed();
 	}
 
-	private function append(string $eventName): OutboxMessage
+	#[Test]
+	public function it_should_report_status_counts_and_recent_errors_without_exposing_payloads(): void
+	{
+		$this->connection->table('outbox')->delete();
+
+		$now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+		$oldestPending = $this->append('orders.pending');
+		$retrying = $this->append('orders.retrying');
+		$claimed = $this->append('orders.claimed');
+		$published = $this->append('orders.published');
+		$failed = $this->append('orders.failed', '{"orderId":"abc","secret":"PAYLOAD_SECRET_MARKER"}');
+
+		$this->connection->table('outbox')->where('event_id', $oldestPending->eventId())->update([
+			'created_at' => $now->modify('-2 hours')->format('Y-m-d H:i:s'),
+		]);
+		$this->connection->table('outbox')->where('event_id', $retrying->eventId())->update([
+			'next_attempt_at' => $now->modify('+1 hour')->format('Y-m-d H:i:s'),
+			'attempts' => 1,
+		]);
+		$this->connection->table('outbox')->where('event_id', $claimed->eventId())->update([
+			'status' => 'claimed',
+			'locked_at' => $now->format('Y-m-d H:i:s'),
+			'claim_token' => 'active-token',
+			'publisher_id' => 'publisher-a',
+			'attempts' => 1,
+		]);
+		$this->connection->table('outbox')->where('event_id', $published->eventId())->update([
+			'status' => 'published',
+			'published_at' => $now->modify('-1 hour')->format('Y-m-d H:i:s'),
+			'attempts' => 1,
+		]);
+		$this->connection->table('outbox')->where('event_id', $failed->eventId())->update([
+			'status' => 'failed',
+			'failed_at' => $now->format('Y-m-d H:i:s'),
+			'attempts' => 10,
+			'last_error' => 'OutboxPublicationException: RabbitMQ confirmation timed out.',
+		]);
+
+		$this->artisan('manager:integration-events:outbox:status')
+			->expectsOutputToContain('Pending: 2')
+			->expectsOutputToContain('Claimed: 1')
+			->expectsOutputToContain('Published: 1')
+			->expectsOutputToContain('Failed: 1')
+			->expectsOutputToContain('Retrying pending: 1')
+			->expectsOutputToContain('Oldest pending age:')
+			->expectsOutputToContain('Stale claims: 0')
+			->expectsOutputToContain('Active publishers: 1')
+			->expectsOutputToContain(sprintf(
+				'event %s | producer orders | order %s | attempts 10 | failed at %s UTC | next retry never | error: OutboxPublicationException: RabbitMQ confirmation timed out.',
+				$failed->eventId(),
+				self::AGGREGATE_ID,
+				$now->format('Y-m-d H:i:s')
+			))
+			->doesntExpectOutputToContain('PAYLOAD_SECRET_MARKER')
+			->doesntExpectOutputToContain('"orderId"')
+			->assertSuccessful();
+	}
+
+	#[Test]
+	public function it_should_redact_secrets_from_recent_errors_in_the_status_output(): void
+	{
+		$this->connection->table('outbox')->delete();
+
+		$now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+		$failed = $this->append('orders.failed');
+
+		$this->connection->table('outbox')->where('event_id', $failed->eventId())->update([
+			'status' => 'failed',
+			'failed_at' => $now->format('Y-m-d H:i:s'),
+			'attempts' => 10,
+			'last_error' => 'Connection amqp://guest:s3cr3t-hunter2@rabbitmq:5672 failed; '
+				. 'password=s3cr3t-hunter2 token=s3cr3t-hunter2',
+		]);
+
+		$this->artisan('manager:integration-events:outbox:status')
+			->expectsOutputToContain('[REDACTED]')
+			->doesntExpectOutputToContain('s3cr3t-hunter2')
+			->doesntExpectOutputToContain('guest')
+			->assertSuccessful();
+	}
+
+	#[Test]
+	public function it_should_purge_only_published_records_older_than_the_requested_window(): void
+	{
+		$this->connection->table('outbox')->delete();
+
+		$now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+		$oldPublished = $this->append('orders.old_published');
+		$recentPublished = $this->append('orders.recent_published');
+		$oldPending = $this->append('orders.old_pending');
+		$oldClaimed = $this->append('orders.old_claimed');
+		$oldFailed = $this->append('orders.old_failed');
+
+		$this->connection->table('outbox')->where('event_id', $oldPublished->eventId())->update([
+			'status' => 'published',
+			'published_at' => $now->modify('-8 days')->format('Y-m-d H:i:s'),
+			'attempts' => 1,
+		]);
+		$this->connection->table('outbox')->where('event_id', $recentPublished->eventId())->update([
+			'status' => 'published',
+			'published_at' => $now->modify('-1 day')->format('Y-m-d H:i:s'),
+			'attempts' => 1,
+		]);
+		$this->connection->table('outbox')->where('event_id', $oldPending->eventId())->update([
+			'created_at' => $now->modify('-10 days')->format('Y-m-d H:i:s'),
+		]);
+		$this->connection->table('outbox')->where('event_id', $oldClaimed->eventId())->update([
+			'status' => 'claimed',
+			'created_at' => $now->modify('-10 days')->format('Y-m-d H:i:s'),
+			'locked_at' => $now->modify('-10 days')->format('Y-m-d H:i:s'),
+			'claim_token' => 'old-token',
+			'publisher_id' => 'old-publisher',
+			'attempts' => 1,
+		]);
+		$this->connection->table('outbox')->where('event_id', $oldFailed->eventId())->update([
+			'status' => 'failed',
+			'created_at' => $now->modify('-10 days')->format('Y-m-d H:i:s'),
+			'failed_at' => $now->modify('-10 days')->format('Y-m-d H:i:s'),
+			'attempts' => 10,
+			'last_error' => 'terminal',
+		]);
+
+		$this->artisan('manager:integration-events:outbox:purge', ['--published-older-than-days' => 7])
+			->expectsOutputToContain('Purged 1 published outbox record(s)')
+			->assertSuccessful();
+
+		$this->assertNull($this->connection->table('outbox')->where('event_id', $oldPublished->eventId())->first());
+		$this->assertNotNull($this->connection->table('outbox')->where('event_id', $recentPublished->eventId())->first());
+		$this->assertNotNull($this->connection->table('outbox')->where('event_id', $oldPending->eventId())->first());
+		$this->assertNotNull($this->connection->table('outbox')->where('event_id', $oldClaimed->eventId())->first());
+		$this->assertNotNull($this->connection->table('outbox')->where('event_id', $oldFailed->eventId())->first());
+	}
+
+	#[Test]
+	public function it_should_use_the_configured_retention_window_when_no_option_is_provided(): void
+	{
+		config(['outbox.published_retention_days' => 2]);
+
+		$this->connection->table('outbox')->delete();
+
+		$now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+		$oldPublished = $this->append('orders.old_published');
+		$recentPublished = $this->append('orders.recent_published');
+
+		$this->connection->table('outbox')->where('event_id', $oldPublished->eventId())->update([
+			'status' => 'published',
+			'published_at' => $now->modify('-3 days')->format('Y-m-d H:i:s'),
+			'attempts' => 1,
+		]);
+		$this->connection->table('outbox')->where('event_id', $recentPublished->eventId())->update([
+			'status' => 'published',
+			'published_at' => $now->modify('-1 day')->format('Y-m-d H:i:s'),
+			'attempts' => 1,
+		]);
+
+		$this->artisan('manager:integration-events:outbox:purge')
+			->expectsOutputToContain('retention: 2 day(s)')
+			->assertSuccessful();
+
+		$this->assertNull($this->connection->table('outbox')->where('event_id', $oldPublished->eventId())->first());
+		$this->assertNotNull($this->connection->table('outbox')->where('event_id', $recentPublished->eventId())->first());
+	}
+
+	#[Test]
+	public function it_should_prefer_the_option_over_the_configured_retention_window(): void
+	{
+		config(['outbox.published_retention_days' => 30]);
+
+		$this->connection->table('outbox')->delete();
+
+		$now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+		$published = $this->append('orders.published');
+
+		$this->connection->table('outbox')->where('event_id', $published->eventId())->update([
+			'status' => 'published',
+			'published_at' => $now->modify('-8 days')->format('Y-m-d H:i:s'),
+			'attempts' => 1,
+		]);
+
+		$this->artisan('manager:integration-events:outbox:purge', ['--published-older-than-days' => 7])
+			->expectsOutputToContain('retention: 7 day(s)')
+			->assertSuccessful();
+
+		$this->assertNull($this->connection->table('outbox')->where('event_id', $published->eventId())->first());
+	}
+
+	#[Test]
+	public function it_should_reject_a_non_positive_retention_window_without_deleting_records(): void
+	{
+		$this->connection->table('outbox')->delete();
+
+		$published = $this->append('orders.published');
+
+		$this->connection->table('outbox')->where('event_id', $published->eventId())->update([
+			'status' => 'published',
+			'published_at' => '2020-01-01 00:00:00',
+			'attempts' => 1,
+		]);
+
+		$this->artisan('manager:integration-events:outbox:purge', ['--published-older-than-days' => 0])
+			->expectsOutputToContain('retention must be a positive integer')
+			->assertFailed();
+
+		$this->assertNotNull($this->connection->table('outbox')->where('event_id', $published->eventId())->first());
+	}
+
+	#[Test]
+	public function it_should_reject_a_non_numeric_retention_window_without_deleting_records(): void
+	{
+		$this->connection->table('outbox')->delete();
+
+		$published = $this->append('orders.published');
+
+		$this->connection->table('outbox')->where('event_id', $published->eventId())->update([
+			'status' => 'published',
+			'published_at' => '2020-01-01 00:00:00',
+			'attempts' => 1,
+		]);
+
+		$this->artisan('manager:integration-events:outbox:purge', ['--published-older-than-days' => 'abc'])
+			->expectsOutputToContain('retention must be a positive integer')
+			->assertFailed();
+
+		$this->assertNotNull($this->connection->table('outbox')->where('event_id', $published->eventId())->first());
+	}
+
+	private function append(string $eventName, string $payload = '{"orderId":"abc"}'): OutboxMessage
 	{
 		$eventId = SimpleUuid::random()->value();
 		$this->eventIds[] = $eventId;
@@ -255,7 +482,7 @@ final class OutboxCommandsTest extends InfrastructureTestCase
 			'orders',
 			'order',
 			self::AGGREGATE_ID,
-			'{"orderId":"abc"}',
+			$payload,
 			new DateTimeImmutable('2026-11-10 10:34:56', new DateTimeZone('UTC')),
 		);
 

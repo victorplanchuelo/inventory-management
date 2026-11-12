@@ -9,16 +9,21 @@ use DateTimeZone;
 use InvalidArgumentException;
 use LogicException;
 use Manager\Shared\Application\Outbox\OutboxStatus;
+use Manager\Shared\Application\Outbox\OutboxStatusSnapshot;
 use Manager\Shared\Infrastructure\Outbox\OutboxClaimLostException;
 use Manager\Shared\Infrastructure\Outbox\OutboxEnvelopeSerializer;
+use Manager\Shared\Infrastructure\Outbox\OutboxErrorSanitizer;
 use Manager\Shared\Infrastructure\Outbox\OutboxEventPublisher;
 use Manager\Shared\Infrastructure\Outbox\OutboxPublicationException;
 use Manager\Shared\Infrastructure\Outbox\OutboxPublisher;
+use Manager\Shared\Infrastructure\Outbox\OutboxPublisherLogger;
 use Manager\Shared\Infrastructure\Outbox\OutboxRecord;
 use Manager\Shared\Infrastructure\Outbox\OutboxRepository;
 use Manager\Shared\Infrastructure\Outbox\OutboxRetryPolicy;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Log\NullLogger;
 use RuntimeException;
+use Tests\Shared\Infrastructure\PhpUnit\CollectingLogger;
 use Tests\Shared\Infrastructure\PhpUnit\UnitTestCase;
 use Throwable;
 
@@ -46,6 +51,29 @@ final class OutboxPublisherTest extends UnitTestCase
 		$this->assertSame('claim-token', $repository->published[0]['claimToken']);
 		$this->assertSame([], $repository->retries);
 		$this->assertSame([], $repository->failures);
+	}
+
+	#[Test]
+	public function it_should_log_a_retry_and_a_batch_summary_without_payload_values(): void
+	{
+		$record = $this->record(payload: '{"orderId":"abc","secret":"PAYLOAD_SECRET_MARKER"}');
+		$repository = new FakeOutboxRepository([$record]);
+		$transport = new ScriptedOutboxEventPublisher([
+			new OutboxPublicationException('RabbitMQ confirmation timed out.'),
+		]);
+		$logger = new CollectingLogger();
+
+		$this->publisher($repository, $transport, $logger)->publishBatch(10);
+
+		$records = $logger->records();
+
+		$this->assertCount(2, $records);
+		$this->assertSame('outbox.record.retry_scheduled', $records[0]['message']);
+		$this->assertSame(self::EVENT_ID, $records[0]['context']['event_id']);
+		$this->assertSame(OutboxPublicationException::class, $records[0]['context']['error_class']);
+		$this->assertSame('outbox.batch.summary', $records[1]['message']);
+		$this->assertSame(1, $records[1]['context']['retried']);
+		$this->assertStringNotContainsString('PAYLOAD_SECRET_MARKER', $logger->json());
 	}
 
 	#[Test]
@@ -107,6 +135,57 @@ final class OutboxPublisherTest extends UnitTestCase
 		$this->assertSame([], $repository->failures);
 		$this->assertSame([], $transport->failures);
 		$this->assertSame([], $transport->published);
+	}
+
+	#[Test]
+	public function it_should_sanitize_secrets_before_persisting_and_logging_a_retry_error(): void
+	{
+		$secret = 's3cr3t-hunter2';
+		$record = $this->record();
+		$repository = new FakeOutboxRepository([$record]);
+		$transport = new ScriptedOutboxEventPublisher([
+			new OutboxPublicationException(sprintf(
+				'Connection amqp://guest:%s@rabbitmq:5672 failed; password=%s token=%s',
+				$secret,
+				$secret,
+				$secret,
+			)),
+		]);
+		$logger = new CollectingLogger();
+
+		$this->publisher($repository, $transport, $logger)->publishBatch(10);
+
+		$this->assertCount(1, $repository->retries);
+
+		$lastError = $repository->retries[0]['lastError'];
+
+		$this->assertStringContainsString(OutboxPublicationException::class, $lastError);
+		$this->assertStringContainsString('[REDACTED]', $lastError);
+		$this->assertStringNotContainsString($secret, $lastError);
+		$this->assertStringNotContainsString('guest', $lastError);
+		$this->assertStringNotContainsString($secret, $logger->json());
+		$this->assertStringNotContainsString('guest', $logger->json());
+	}
+
+	#[Test]
+	public function it_should_sanitize_secrets_before_persisting_a_terminal_failure(): void
+	{
+		$secret = 's3cr3t-hunter2';
+		$record = $this->record(attempts: 10);
+		$repository = new FakeOutboxRepository([$record]);
+		$transport = new ScriptedOutboxEventPublisher([
+			new OutboxPublicationException(sprintf('password=%s token=%s', $secret, $secret)),
+		]);
+
+		$this->publisher($repository, $transport)->publishBatch(10);
+
+		$this->assertCount(1, $repository->failures);
+
+		$lastError = $repository->failures[0]['lastError'];
+
+		$this->assertStringContainsString(OutboxPublicationException::class, $lastError);
+		$this->assertStringContainsString('[REDACTED]', $lastError);
+		$this->assertStringNotContainsString($secret, $lastError);
 	}
 
 	#[Test]
@@ -303,13 +382,18 @@ final class OutboxPublisherTest extends UnitTestCase
 		$this->publisher($repository, new ScriptedOutboxEventPublisher())->publishBatch(0);
 	}
 
-	private function publisher(OutboxRepository $repository, OutboxEventPublisher $transport): OutboxPublisher
-	{
+	private function publisher(
+		OutboxRepository $repository,
+		OutboxEventPublisher $transport,
+		?CollectingLogger $logger = null,
+	): OutboxPublisher {
 		return new OutboxPublisher(
 			$repository,
 			new OutboxEnvelopeSerializer(),
 			$transport,
 			new OutboxRetryPolicy(),
+			new OutboxPublisherLogger($logger ?? new NullLogger(), new OutboxErrorSanitizer()),
+			new OutboxErrorSanitizer(),
 			'publisher-test'
 		);
 	}
@@ -319,6 +403,7 @@ final class OutboxPublisherTest extends UnitTestCase
 		?string $claimToken = 'claim-token',
 		int $attempts = 1,
 		string $eventName = 'orders.order_confirmed',
+		string $payload = '{"orderId":"abc","total":19.90}',
 	): OutboxRecord {
 		return new OutboxRecord(
 			id: $eventId === self::EVENT_ID
@@ -333,7 +418,7 @@ final class OutboxPublisherTest extends UnitTestCase
 			aggregateVersion: 7,
 			correlationId: 'correlation-1',
 			causationId: 'causation-1',
-			payload: '{"orderId":"abc","total":19.90}',
+			payload: $payload,
 			occurredAt: new DateTimeImmutable('2026-11-10T10:34:56Z', new DateTimeZone('UTC')),
 			createdAt: new DateTimeImmutable('2026-11-10T10:35:01Z', new DateTimeZone('UTC')),
 			publishedAt: null,
@@ -434,6 +519,27 @@ final class FakeOutboxRepository implements OutboxRepository
 	public function requeueFailed(string $eventId): bool
 	{
 		return false;
+	}
+
+	public function status(DateTimeImmutable $now, int $recentFailureLimit = 10): OutboxStatusSnapshot
+	{
+		return new OutboxStatusSnapshot(
+			pending: 0,
+			claimed: 0,
+			published: 0,
+			failed: 0,
+			retrying: 0,
+			oldestPendingCreatedAt: null,
+			staleClaims: 0,
+			activePublishers: 0,
+			lastPublishedAt: null,
+			recentFailures: [],
+		);
+	}
+
+	public function purgePublishedBefore(DateTimeImmutable $cutoff): int
+	{
+		return 0;
 	}
 }
 

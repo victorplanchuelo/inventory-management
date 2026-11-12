@@ -24,6 +24,8 @@ final readonly class OutboxPublisher
 		private OutboxEnvelopeSerializer $serializer,
 		private OutboxEventPublisher $publisher,
 		private OutboxRetryPolicy $retryPolicy,
+		private OutboxPublisherLogger $logger,
+		private OutboxErrorSanitizer $errorSanitizer,
 		private string $publisherId,
 	) {
 		if (trim($this->publisherId) === '') {
@@ -38,95 +40,117 @@ final readonly class OutboxPublisher
 		}
 
 		$published = 0;
+		$retried = 0;
+		$failed = 0;
 		$handled = 0;
 
-		while ($handled < $limit) {
-			$records = $this->repository->claim(self::CLAIM_BATCH_SIZE, $this->now(), $this->publisherId);
+		try {
+			while ($handled < $limit) {
+				$records = $this->repository->claim(self::CLAIM_BATCH_SIZE, $this->now(), $this->publisherId);
 
-			if ($records === []) {
-				break;
-			}
-
-			foreach ($records as $record) {
-				if ($handled >= $limit) {
+				if ($records === []) {
 					break;
 				}
 
-				$handled++;
+				foreach ($records as $record) {
+					if ($handled >= $limit) {
+						break;
+					}
 
-				$claimToken = $record->claimToken;
+					$handled++;
 
-				if ($claimToken === null) {
-					throw new RuntimeException(sprintf('The claimed Outbox record <%s> has no claim token.', $record->id));
-				}
+					$claimToken = $record->claimToken;
 
-				if ($this->publishRecord($record, $claimToken)) {
-					$published++;
+					if ($claimToken === null) {
+						throw new RuntimeException(sprintf('The claimed Outbox record <%s> has no claim token.', $record->id));
+					}
+
+					$result = $this->publishRecord($record, $claimToken);
+
+					match ($result) {
+						OutboxPublicationResult::PUBLISHED => $published++,
+						OutboxPublicationResult::RETRY_SCHEDULED => $retried++,
+						OutboxPublicationResult::FAILED => $failed++,
+					};
 				}
 			}
+		} catch (Throwable $exception) {
+			$this->logger->batchSummary($limit, $handled, $published, $retried, $failed, $exception);
+
+			throw $exception;
 		}
+
+		$this->logger->batchSummary($limit, $handled, $published, $retried, $failed);
 
 		return $published;
 	}
 
-	private function publishRecord(OutboxRecord $record, string $claimToken): bool
+	private function publishRecord(OutboxRecord $record, string $claimToken): OutboxPublicationResult
 	{
 		try {
 			$envelope = $this->serializer->serialize($record);
 		} catch (OutboxSerializationException $exception) {
-			$this->markTerminal($record, $claimToken, $exception);
-
-			return false;
+			return $this->markTerminal($record, $claimToken, $exception);
 		}
 
 		try {
 			$this->publisher->publish($record, $envelope);
 		} catch (OutboxPublicationException $exception) {
-			$this->handlePublicationFailure($record, $claimToken, $exception);
-
-			return false;
+			return $this->handlePublicationFailure($record, $claimToken, $exception);
 		}
 
-		if (!$this->repository->markPublished($record->id, $claimToken, $this->now())) {
+		$publishedAt = $this->now();
+
+		if (!$this->repository->markPublished($record->id, $claimToken, $publishedAt)) {
 			throw new OutboxClaimLostException(
 				sprintf('The Outbox claim for record <%s> was lost before it could be marked as published.', $record->id)
 			);
 		}
 
-		return true;
+		$this->logger->recordPublished($record, $publishedAt);
+
+		return OutboxPublicationResult::PUBLISHED;
 	}
 
 	private function handlePublicationFailure(
 		OutboxRecord $record,
 		string $claimToken,
 		OutboxPublicationException $exception,
-	): void {
+	): OutboxPublicationResult {
 		$now = $this->now();
 		$lastError = $this->describeError($exception);
 
 		if ($this->retryPolicy->isTerminal($record->attempts)) {
 			$this->markFailed($record, $claimToken, $now, $lastError);
+			$this->logger->recordFailed($record, $exception);
 
-			return;
+			return OutboxPublicationResult::FAILED;
 		}
 
-		$scheduled = $this->repository->scheduleRetry(
-			$record->id,
-			$claimToken,
-			$this->retryPolicy->nextAttemptAt($now, $record->attempts),
-			$lastError
-		);
+		$nextAttemptAt = $this->retryPolicy->nextAttemptAt($now, $record->attempts);
+
+		$scheduled = $this->repository->scheduleRetry($record->id, $claimToken, $nextAttemptAt, $lastError);
 
 		if (!$scheduled) {
 			throw new OutboxClaimLostException(
 				sprintf('The Outbox claim for record <%s> was lost before its retry could be scheduled.', $record->id)
 			);
 		}
+
+		$this->logger->recordRetryScheduled($record, $nextAttemptAt, $exception);
+
+		return OutboxPublicationResult::RETRY_SCHEDULED;
 	}
 
-	private function markTerminal(OutboxRecord $record, string $claimToken, Throwable $exception): void
-	{
+	private function markTerminal(
+		OutboxRecord $record,
+		string $claimToken,
+		Throwable $exception,
+	): OutboxPublicationResult {
 		$this->markFailed($record, $claimToken, $this->now(), $this->describeError($exception));
+		$this->logger->recordFailed($record, $exception);
+
+		return OutboxPublicationResult::FAILED;
 	}
 
 	private function markFailed(
@@ -146,7 +170,7 @@ final readonly class OutboxPublisher
 
 	private function describeError(Throwable $exception): string
 	{
-		$message = trim($exception->getMessage());
+		$message = trim($this->errorSanitizer->sanitize($exception->getMessage()));
 
 		if ($message === '') {
 			return $exception::class;

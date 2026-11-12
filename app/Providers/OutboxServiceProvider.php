@@ -15,11 +15,14 @@ use Manager\Shared\Infrastructure\Outbox\MySqlOutboxRecorder;
 use Manager\Shared\Infrastructure\Outbox\MySqlOutboxRepository;
 use Manager\Shared\Infrastructure\Outbox\OutboxConnectionFactory;
 use Manager\Shared\Infrastructure\Outbox\OutboxEnvelopeSerializer;
+use Manager\Shared\Infrastructure\Outbox\OutboxErrorSanitizer;
 use Manager\Shared\Infrastructure\Outbox\OutboxEventPublisher;
 use Manager\Shared\Infrastructure\Outbox\OutboxProducerValidator;
 use Manager\Shared\Infrastructure\Outbox\OutboxPublisher;
+use Manager\Shared\Infrastructure\Outbox\OutboxPublisherLogger;
 use Manager\Shared\Infrastructure\Outbox\OutboxRepository;
 use Manager\Shared\Infrastructure\Outbox\OutboxRetryPolicy;
+use Psr\Log\LoggerInterface;
 
 final class OutboxServiceProvider extends ServiceProvider
 {
@@ -48,12 +51,19 @@ final class OutboxServiceProvider extends ServiceProvider
 			);
 		});
 
-		$this->app->singleton(OutboxRepository::class, static function (Application $app): OutboxRepository {
+		$this->app->singleton(
+			OutboxErrorSanitizer::class,
+			static fn (): OutboxErrorSanitizer => new OutboxErrorSanitizer()
+		);
+
+		$this->app->singleton(OutboxRepository::class, function (Application $app): OutboxRepository {
 			$leaseSeconds = config('outbox.lease_seconds', 300);
 
 			return new MySqlOutboxRepository(
 				$app->make(OutboxConnectionFactory::class)->connection(),
-				is_numeric($leaseSeconds) ? (int) $leaseSeconds : 300
+				is_numeric($leaseSeconds) ? (int) $leaseSeconds : 300,
+				$app->make(OutboxErrorSanitizer::class),
+				$this->retryConfigurationInteger('max_attempts', OutboxRetryPolicy::MAX_ATTEMPTS),
 			);
 		});
 
@@ -62,7 +72,24 @@ final class OutboxServiceProvider extends ServiceProvider
 			static fn (): OutboxEnvelopeSerializer => new OutboxEnvelopeSerializer()
 		);
 
-		$this->app->singleton(OutboxRetryPolicy::class, static fn (): OutboxRetryPolicy => new OutboxRetryPolicy());
+		$this->app->singleton(OutboxRetryPolicy::class, fn (): OutboxRetryPolicy => new OutboxRetryPolicy(
+			$this->retryConfigurationInteger('max_attempts', OutboxRetryPolicy::MAX_ATTEMPTS),
+			$this->retryConfigurationInteger('base_backoff_seconds', 5),
+			$this->retryConfigurationInteger('backoff_factor', 2),
+			$this->retryConfigurationInteger('max_backoff_seconds', 600),
+		));
+
+		$this->app->singleton(OutboxPublisherLogger::class, function (Application $app): OutboxPublisherLogger {
+			$configuration = config('outbox.logging');
+			$configuration = is_array($configuration) ? $configuration : [];
+
+			return new OutboxPublisherLogger(
+				$app->make(LoggerInterface::class),
+				$app->make(OutboxErrorSanitizer::class),
+				$this->booleanConfigurationValue($configuration['enabled'] ?? true, true),
+				$this->booleanConfigurationValue($configuration['batch_summary'] ?? true, true),
+			);
+		});
 
 		$this->app->singleton(OutboxEventPublisher::class, static function (): OutboxEventPublisher {
 			$configuration = config('queue.connections.rabbitmq');
@@ -85,8 +112,26 @@ final class OutboxServiceProvider extends ServiceProvider
 				$app->make(OutboxEnvelopeSerializer::class),
 				$app->make(OutboxEventPublisher::class),
 				$app->make(OutboxRetryPolicy::class),
+				$app->make(OutboxPublisherLogger::class),
+				$app->make(OutboxErrorSanitizer::class),
 				sprintf('%s:%d', (string) gethostname(), (int) getmypid())
 			);
 		});
+	}
+
+	private function retryConfigurationInteger(string $key, int $default): int
+	{
+		$configuration = config('outbox.retry');
+		$configuration = is_array($configuration) ? $configuration : [];
+		$value = $configuration[$key] ?? null;
+
+		return is_numeric($value) ? (int) $value : $default;
+	}
+
+	private function booleanConfigurationValue(mixed $value, bool $default): bool
+	{
+		$parsed = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+
+		return is_bool($parsed) ? $parsed : $default;
 	}
 }

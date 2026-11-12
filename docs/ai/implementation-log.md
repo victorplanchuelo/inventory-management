@@ -50,6 +50,74 @@ Use one entry per task. Keep the log brief and factual.
 
 ## Log
 
+### 2026-11-11 — Task 003: Transactional Outbox and Integration Infrastructure
+
+**Objective**
+
+- Persist integration events in a shared Outbox table within the same database transaction as the originating business change.
+- Publish them asynchronously to RabbitMQ only after positive broker confirmation and successful routing.
+- Provide claim fencing, retries, terminal failure handling, operator recovery, status reporting, published-record retention and operational documentation.
+
+**Research**
+
+- Files inspected: `AGENTS.md`, ADR 003, ADR 004, the Task003 specification, `src/Shared/Infrastructure/Bus/Event/RabbitMq`, `src/Shared/Infrastructure/Database`, the existing console commands, `config/queue.php`, `phpunit.xml`, `ecs.php`, `phpstan.neon` and the existing shared test infrastructure.
+- Existing behavior: the application already had a legacy `RabbitMqEventBus`, Eloquent domain-event persistence and generated Supervisor consumer files. The Outbox did not exist.
+- Reused contracts: `SimpleUuid`, `TransactionalSession`, `ext-amqp`, Laravel's database connection and command registration.
+- Verified facts: MySQL supports `SELECT ... FOR UPDATE SKIP LOCKED`; the project uses `ext-amqp` publisher confirms; the default connection is shared with business writes; existing Supervisor files are generated outside version control.
+- Hypotheses/risks: a separate Outbox connection would break atomicity, so it was rejected. Forcing a deterministic RabbitMQ confirmation timeout against the real broker is not reliable, so that path is covered at the publication-state level.
+
+**Approved Plan**
+
+- Files to create/modify: Outbox application contracts and value objects, the `outbox` migration, MySQL recorder/repository, envelope serializer, retry policy, confirmed publisher, publisher logger, four console commands, configuration, tests, the operational runbook and documentation indexes.
+- Design: one shared `outbox` table with logical ownership through `producer`; business and Outbox writes share the default connection and transaction; one-record claim batches with lease-based token fencing; retries with exponential backoff; terminal `failed` records recoverable only through explicit requeue; published-only purge with configurable retention.
+- Planned tests: unit tests for records, statuses, serialization, retry policy, publication outcomes and logging; integration tests for transaction atomicity, concurrency, fencing, real RabbitMQ confirms/routing, retries, terminal failure, requeue, status aggregation and purge.
+- Acceptance criteria: `docs/tasks/003-transactional-outbox-and-integration-infrastructure.md`.
+
+**Implementation**
+
+- Changes made: added the shared Outbox table and transactional writer; the claim-fenced MySQL repository; deterministic integration-event envelope; RabbitMQ publisher using persistent delivery, mandatory routing and confirms; retry and terminal-failure handling; requeue; status and purge commands; retention, retry and logging configuration; structured per-record and batch-summary logs; a reusable `OutboxErrorSanitizer` applied before errors are persisted, logged or displayed; `docs/architecture/outbox-operations.md`; documentation indexes and Task003 verification.
+- Decisions taken: the Outbox always uses the application's default database connection and does not allow an independent one; retention is configurable with a seven-day default and a one-day minimum; retry limits and backoff are configurable with the previous defaults preserved; logging and batch summaries can be disabled separately; status reports database-backed health only and does not probe the RabbitMQ broker; `failed` records are terminal and excluded from automatic purge.
+- Error sanitization: `OutboxErrorSanitizer` is a stateless, pattern-based policy applied at four boundaries: the publisher's error description, logger context, repository writes and reads, and status rendering. It redacts URI/DSN credentials, passwords, secrets, tokens, API keys, authorization headers, JWTs, common provider tokens, PEM private keys and usernames. After redaction it normalizes CR/LF, tabs and other non-printable control characters to single spaces, preventing log forging and keeping operational errors on one logical line. Legacy rows are sanitized on read, and exhaustion recovery rewrites legacy errors in sanitized form. Sanitization is defense in depth, not a guarantee that arbitrary business secrets are detected.
+- Payload ownership: this task introduces no producer mapping and therefore adds no integration-event payload contents. Logs and status output never include stored payload values; payload-content sensitivity remains the responsibility of each producing bounded context. Task003 does not claim that future producer-owned payloads are free of sensitive information.
+- Discarded changes and reasons: a separate Outbox connection was discarded because it would break atomicity; automatic failed-record deletion was discarded because terminal failures require explicit operator review; broker health probing from the status command was discarded because the broker is external and the command remains a read-only database report; deleting the stale Outbox context document was discarded in favour of rewriting it as a final-state checkpoint.
+- Scope preserved: no Inventory-specific event mapping, Inbox, projection, Saga, Event Sourcing or legacy User/RabbitMqEventBus behaviour change was introduced. OD-002 and OD-003 remain open.
+
+**Verification**
+
+- Command: `docker compose exec -T app php vendor/bin/phpunit tests/Unit/Shared/Application/Outbox tests/Unit/Shared/Infrastructure/Outbox`
+- Result: OK (137 tests, 304 assertions). Includes the sanitizer pattern, CR/LF, tab, C0/C1, U+2028/U+2029, invalid UTF-8, idempotency and secret-redaction cases.
+- Command: `docker compose exec -T app php vendor/bin/phpunit tests/Integration/Shared/Infrastructure/Outbox/MySqlOutboxRepositoryTest.php tests/Integration/Shared/Infrastructure/Console/Outbox/OutboxCommandsTest.php`
+- Result: OK (41 tests, 349 assertions). Covers sanitized retry/terminal errors, legacy exhaustion errors, legacy status errors and command output redaction.
+- Command: `docker compose exec -T app php vendor/bin/phpunit tests/Integration/Shared/Infrastructure/Outbox/OutboxPublisherTest.php`
+- Result: OK (7 tests, 97 assertions).
+- Command: the complete Outbox unit and integration suites with `--order-by=random`.
+- Result: OK (197 tests, 813 assertions), random seed 1794397318.
+- Command: the real-broker negatively acknowledged publication test, executed three times.
+- Result: 3/3 runs OK (1 test, 5 assertions each).
+- Command: `docker compose exec -T app php vendor/bin/phpunit`
+- Result: OK (397 tests, 1202 assertions).
+- Command: `docker compose exec -T app php vendor/bin/ecs check` over the changed Outbox, command, configuration, provider and test files.
+- Result: no errors.
+- Command: full-project `docker compose exec -T app php vendor/bin/ecs check`.
+- Result: 46 pre-existing legacy findings in untouched files, including generated `bootstrap/cache` content; none of the changed files are reported. Those legacy findings were not modified.
+- Command: `docker compose exec -T app php vendor/bin/phpstan analyse --no-progress --memory-limit=1G`
+- Result: no errors; the PHPStan baseline was not modified and no new baseline entries were added.
+- Command: `git diff --check`.
+- Result: no whitespace errors.
+- Environment: Docker app container with MySQL and RabbitMQ services.
+- Tests not executed and reasons: there is no deterministic real-broker confirmation-timeout test. The timeout path is covered by publication-state tests, while real-broker tests cover positive confirmation, unroutable returns and negative acknowledgements.
+
+**Review Status**
+
+- `Verified` in Task003 means that the automated checks and acceptance criteria were verified. It is not human sign-off; human review and approval remain pending.
+- The review findings were resolved before this verification: secrets are sanitized before persistence, logging and status display; control characters are normalized to prevent log forging; the stale Outbox context document was rewritten; the payload-sensitivity criterion now separates infrastructure and producer responsibilities; and technical verification is distinct from pending human approval.
+
+**Human Review**
+
+- Can I explain the change without assistance? Pending human review.
+- What would I change if I had more time? Add a consumer-side Inbox and a deterministic broker-timeout harness when the required infrastructure exists.
+- What technical debt remains? Consumer idempotency and Inbox retention belong to Task004; Inventory event mapping belongs to Task006; aggregate versioning and event ordering (OD-002) remain open. The sanitizer is pattern-based and cannot detect arbitrary business secrets.
+
 ### 2026-11-09 — Task 001: Inventory Domain and Application Foundation
 
 **Objective**

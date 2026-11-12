@@ -14,6 +14,7 @@ use Manager\Shared\Application\Outbox\OutboxRecorder;
 use Manager\Shared\Domain\ValueObject\SimpleUuid;
 use Manager\Shared\Infrastructure\Outbox\MySqlOutboxRepository;
 use Manager\Shared\Infrastructure\Outbox\OutboxConnectionFactory;
+use Manager\Shared\Infrastructure\Outbox\OutboxErrorSanitizer;
 use Manager\Shared\Infrastructure\Outbox\OutboxRecord;
 use Manager\Shared\Infrastructure\Outbox\OutboxRetryPolicy;
 use PHPUnit\Framework\Attributes\Test;
@@ -24,6 +25,7 @@ final class MySqlOutboxRepositoryTest extends InfrastructureTestCase
 {
 	private const AGGREGATE_ID = 'f3a2c9b8-6d4e-4b8b-a6e8-2f1c6d5e9a10';
 	private const LEASE_SECONDS = 60;
+	private const SECRET_ERROR = 'Connection amqp://guest:s3cr3t-hunter2@rabbitmq:5672 failed; password=s3cr3t-hunter2 token=s3cr3t-hunter2';
 
 	private Connection $connection;
 	private Connection $secondConnection;
@@ -39,7 +41,11 @@ final class MySqlOutboxRepositoryTest extends InfrastructureTestCase
 
 		$this->eventIds = [];
 		$this->connection = app(OutboxConnectionFactory::class)->connection();
-		$this->repository = new MySqlOutboxRepository($this->connection, self::LEASE_SECONDS);
+		$this->repository = new MySqlOutboxRepository(
+			$this->connection,
+			self::LEASE_SECONDS,
+			new OutboxErrorSanitizer(),
+		);
 		$this->recorder = app(OutboxRecorder::class);
 
 		$defaultConnection = config('database.default');
@@ -156,7 +162,11 @@ final class MySqlOutboxRepositoryTest extends InfrastructureTestCase
 	{
 		$message = $this->append();
 		$now = $this->now();
-		$secondRepository = new MySqlOutboxRepository($this->secondConnection, self::LEASE_SECONDS);
+		$secondRepository = new MySqlOutboxRepository(
+			$this->secondConnection,
+			self::LEASE_SECONDS,
+			new OutboxErrorSanitizer(),
+		);
 
 		$this->connection->beginTransaction();
 
@@ -307,6 +317,45 @@ final class MySqlOutboxRepositoryTest extends InfrastructureTestCase
 		$this->assertCount(1, $retried);
 		$this->assertSame(2, $retried[0]->attempts);
 		$this->assertSame($message->eventId(), $retried[0]->eventId);
+	}
+
+	#[Test]
+	public function it_should_sanitize_secrets_before_persisting_a_retry_error(): void
+	{
+		$message = $this->append();
+		$record = $this->repository->claim(10, $this->now(), 'publisher-a')[0];
+		$claimToken = (string) $record->claimToken;
+
+		$this->assertTrue(
+			$this->repository->scheduleRetry(
+				$record->id,
+				$claimToken,
+				$this->now()->modify('+5 seconds'),
+				self::SECRET_ERROR,
+			)
+		);
+
+		$lastError = (string) $this->row($message->eventId())['last_error'];
+
+		$this->assertStringContainsString('[REDACTED]', $lastError);
+		$this->assertStringNotContainsString('s3cr3t-hunter2', $lastError);
+		$this->assertStringNotContainsString('guest', $lastError);
+	}
+
+	#[Test]
+	public function it_should_sanitize_secrets_before_persisting_a_terminal_error(): void
+	{
+		$message = $this->append();
+		$record = $this->repository->claim(10, $this->now(), 'publisher-a')[0];
+		$claimToken = (string) $record->claimToken;
+
+		$this->assertTrue($this->repository->markFailed($record->id, $claimToken, $this->now(), self::SECRET_ERROR));
+
+		$lastError = (string) $this->row($message->eventId())['last_error'];
+
+		$this->assertStringContainsString('[REDACTED]', $lastError);
+		$this->assertStringNotContainsString('s3cr3t-hunter2', $lastError);
+		$this->assertStringNotContainsString('guest', $lastError);
 	}
 
 	#[Test]
@@ -494,6 +543,27 @@ final class MySqlOutboxRepositoryTest extends InfrastructureTestCase
 	}
 
 	#[Test]
+	public function it_should_sanitize_a_legacy_error_when_exhaustion_transitions_to_failed(): void
+	{
+		$message = $this->append();
+
+		$this->update($message->eventId(), [
+			'attempts' => OutboxRetryPolicy::MAX_ATTEMPTS,
+			'next_attempt_at' => '2026-11-10 12:05:00',
+			'last_error' => self::SECRET_ERROR,
+		]);
+
+		$this->assertSame([], $this->repository->claim(10, $this->now(), 'publisher-a'));
+
+		$row = $this->row($message->eventId());
+
+		$this->assertSame('failed', $row['status']);
+		$this->assertStringContainsString('[REDACTED]', (string) $row['last_error']);
+		$this->assertStringNotContainsString('s3cr3t-hunter2', (string) $row['last_error']);
+		$this->assertStringNotContainsString('guest', (string) $row['last_error']);
+	}
+
+	#[Test]
 	public function it_should_transition_a_pending_record_at_the_attempt_limit_to_failed(): void
 	{
 		$payload = '{ "sku" : "A-1", "unicode" : "Málaga 🐢" }';
@@ -646,7 +716,179 @@ final class MySqlOutboxRepositoryTest extends InfrastructureTestCase
 	{
 		$this->expectException(InvalidArgumentException::class);
 
-		new MySqlOutboxRepository($this->connection, 0);
+		new MySqlOutboxRepository($this->connection, 0, new OutboxErrorSanitizer());
+	}
+
+	#[Test]
+	public function it_should_report_status_counts_retrying_records_stale_claims_and_recent_failures(): void
+	{
+		$this->connection->table('outbox')->delete();
+
+		$pending = $this->append('orders.pending');
+		$retrying = $this->append('orders.retrying');
+		$activeClaim = $this->append('orders.active');
+		$staleClaim = $this->append('orders.stale');
+		$published = $this->append('orders.published');
+		$failed = $this->append('orders.failed');
+
+		$this->update($pending->eventId(), [
+			'created_at' => '2026-11-10 10:00:00',
+			'next_attempt_at' => null,
+		]);
+		$this->update($retrying->eventId(), [
+			'created_at' => '2026-11-10 11:00:00',
+			'next_attempt_at' => '2026-11-10 12:05:00',
+			'attempts' => 1,
+		]);
+		$this->update($activeClaim->eventId(), [
+			'status' => 'claimed',
+			'locked_at' => '2026-11-10 11:59:30',
+			'claim_token' => 'active-token',
+			'publisher_id' => 'publisher-a',
+			'attempts' => 1,
+		]);
+		$this->update($staleClaim->eventId(), [
+			'status' => 'claimed',
+			'locked_at' => '2026-11-10 11:58:00',
+			'claim_token' => 'stale-token',
+			'publisher_id' => 'publisher-b',
+			'attempts' => 1,
+		]);
+		$this->update($published->eventId(), [
+			'status' => 'published',
+			'published_at' => '2026-11-10 11:30:00',
+			'attempts' => 1,
+		]);
+		$this->update($failed->eventId(), [
+			'status' => 'failed',
+			'failed_at' => '2026-11-10 11:45:00',
+			'attempts' => 10,
+			'last_error' => 'OutboxPublicationException: RabbitMQ confirmation timed out.',
+		]);
+
+		$status = $this->repository->status($this->now());
+
+		$this->assertSame(2, $status->pending);
+		$this->assertSame(2, $status->claimed);
+		$this->assertSame(1, $status->published);
+		$this->assertSame(1, $status->failed);
+		$this->assertSame(1, $status->retrying);
+		$this->assertSame('2026-11-10 10:00:00', $status->oldestPendingCreatedAt?->format('Y-m-d H:i:s'));
+		$this->assertSame(1, $status->staleClaims);
+		$this->assertSame(1, $status->activePublishers);
+		$this->assertSame('2026-11-10 11:30:00', $status->lastPublishedAt?->format('Y-m-d H:i:s'));
+		$this->assertCount(1, $status->recentFailures);
+		$this->assertSame($failed->eventId(), $status->recentFailures[0]->eventId);
+		$this->assertSame(self::AGGREGATE_ID, $status->recentFailures[0]->aggregateId);
+		$this->assertSame('failed', $status->recentFailures[0]->status->value);
+		$this->assertSame(10, $status->recentFailures[0]->attempts);
+		$this->assertSame(
+			'OutboxPublicationException: RabbitMQ confirmation timed out.',
+			$status->recentFailures[0]->lastError
+		);
+	}
+
+	#[Test]
+	public function it_should_include_a_pending_retry_in_the_recent_failure_summary(): void
+	{
+		$this->connection->table('outbox')->delete();
+
+		$retrying = $this->append('orders.retrying');
+		$this->update($retrying->eventId(), [
+			'next_attempt_at' => '2026-11-10 12:05:00',
+			'attempts' => 1,
+			'last_error' => 'OutboxPublicationException: connection refused.',
+		]);
+
+		$status = $this->repository->status($this->now());
+
+		$this->assertCount(1, $status->recentFailures);
+		$this->assertSame($retrying->eventId(), $status->recentFailures[0]->eventId);
+		$this->assertSame('pending', $status->recentFailures[0]->status->value);
+		$this->assertSame('2026-11-10 12:05:00', $status->recentFailures[0]->nextAttemptAt?->format('Y-m-d H:i:s'));
+	}
+
+	#[Test]
+	public function it_should_redact_secrets_from_legacy_errors_in_the_status_report(): void
+	{
+		$this->connection->table('outbox')->delete();
+
+		$failed = $this->append('orders.failed');
+
+		$this->update($failed->eventId(), [
+			'status' => 'failed',
+			'failed_at' => '2026-11-10 11:45:00',
+			'attempts' => 10,
+			'last_error' => self::SECRET_ERROR,
+		]);
+
+		$status = $this->repository->status($this->now());
+
+		$this->assertCount(1, $status->recentFailures);
+
+		$lastError = $status->recentFailures[0]->lastError;
+
+		$this->assertStringContainsString('[REDACTED]', $lastError);
+		$this->assertStringNotContainsString('s3cr3t-hunter2', $lastError);
+		$this->assertStringNotContainsString('guest', $lastError);
+	}
+
+	#[Test]
+	public function it_should_purge_only_published_records_older_than_the_cutoff(): void
+	{
+		$this->connection->table('outbox')->delete();
+
+		$oldPublished = $this->append('orders.old_published');
+		$recentPublished = $this->append('orders.recent_published');
+		$oldPending = $this->append('orders.old_pending');
+		$oldClaimed = $this->append('orders.old_claimed');
+		$oldFailed = $this->append('orders.old_failed');
+
+		$this->update($oldPublished->eventId(), [
+			'status' => 'published',
+			'published_at' => '2026-11-01 12:00:00',
+			'attempts' => 1,
+		]);
+		$this->update($recentPublished->eventId(), [
+			'status' => 'published',
+			'published_at' => '2026-11-09 12:00:00',
+			'attempts' => 1,
+		]);
+		$this->update($oldPending->eventId(), [
+			'created_at' => '2026-11-01 12:00:00',
+		]);
+		$this->update($oldClaimed->eventId(), [
+			'status' => 'claimed',
+			'created_at' => '2026-11-01 12:00:00',
+			'locked_at' => '2026-11-01 12:00:00',
+			'claim_token' => 'old-token',
+			'publisher_id' => 'old-publisher',
+			'attempts' => 1,
+		]);
+		$this->update($oldFailed->eventId(), [
+			'status' => 'failed',
+			'created_at' => '2026-11-01 12:00:00',
+			'failed_at' => '2026-11-01 12:00:00',
+			'attempts' => 10,
+			'last_error' => 'terminal',
+		]);
+
+		$deleted = $this->repository->purgePublishedBefore($this->now()->modify('-7 days'));
+
+		$this->assertSame(1, $deleted);
+		$this->assertNull($this->connection->table('outbox')->where('event_id', $oldPublished->eventId())->first());
+		$this->assertNotNull($this->connection->table('outbox')->where('event_id', $recentPublished->eventId())->first());
+		$this->assertNotNull($this->connection->table('outbox')->where('event_id', $oldPending->eventId())->first());
+		$this->assertNotNull($this->connection->table('outbox')->where('event_id', $oldClaimed->eventId())->first());
+		$this->assertNotNull($this->connection->table('outbox')->where('event_id', $oldFailed->eventId())->first());
+	}
+
+	#[Test]
+	public function it_should_reject_a_non_positive_recent_failure_limit(): void
+	{
+		$this->expectException(InvalidArgumentException::class);
+
+		$this->repository->status($this->now(), 0);
 	}
 
 	private function append(

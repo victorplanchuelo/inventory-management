@@ -9,7 +9,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use InvalidArgumentException;
 
-final class OutboxRetryPolicy
+final readonly class OutboxRetryPolicy
 {
 	public const MAX_ATTEMPTS = 10;
 
@@ -17,11 +17,34 @@ final class OutboxRetryPolicy
 	private const BACKOFF_FACTOR = 2;
 	private const MAX_BACKOFF_SECONDS = 600;
 
+	public function __construct(
+		private int $maxAttempts = self::MAX_ATTEMPTS,
+		private int $baseBackoffSeconds = self::BASE_BACKOFF_SECONDS,
+		private int $backoffFactor = self::BACKOFF_FACTOR,
+		private int $maxBackoffSeconds = self::MAX_BACKOFF_SECONDS,
+	) {
+		if ($this->maxAttempts < 1) {
+			throw new InvalidArgumentException('The Outbox attempt limit must be a positive integer.');
+		}
+
+		if ($this->baseBackoffSeconds < 1) {
+			throw new InvalidArgumentException('The Outbox base backoff must be a positive number of seconds.');
+		}
+
+		if ($this->backoffFactor < 1) {
+			throw new InvalidArgumentException('The Outbox backoff factor must be a positive integer.');
+		}
+
+		if ($this->maxBackoffSeconds < $this->baseBackoffSeconds) {
+			throw new InvalidArgumentException('The Outbox maximum backoff cannot be shorter than the base backoff.');
+		}
+	}
+
 	public function isTerminal(int $attempts): bool
 	{
 		$this->assertPositiveAttempts($attempts);
 
-		return $attempts >= self::MAX_ATTEMPTS;
+		return $attempts >= $this->maxAttempts;
 	}
 
 	public function nextAttemptAt(DateTimeImmutable $failedAt, int $attempts): DateTimeImmutable
@@ -29,7 +52,9 @@ final class OutboxRetryPolicy
 		$this->assertPositiveAttempts($attempts);
 
 		if ($this->isTerminal($attempts)) {
-			throw new InvalidArgumentException('The Outbox retry policy cannot schedule an eleventh publication attempt.');
+			throw new InvalidArgumentException(
+				sprintf('The Outbox retry policy cannot schedule publication attempt %d of %d.', $attempts + 1, $this->maxAttempts)
+			);
 		}
 
 		$delay = $this->backoffSeconds($attempts);
@@ -41,11 +66,11 @@ final class OutboxRetryPolicy
 
 	private function backoffSeconds(int $attempts): int
 	{
-		$delay = self::BASE_BACKOFF_SECONDS;
+		$delay = $this->baseBackoffSeconds;
 		$remainingDoublings = $attempts - 1;
 
-		while ($remainingDoublings > 0 && $delay < self::MAX_BACKOFF_SECONDS) {
-			$delay = min($delay * self::BACKOFF_FACTOR, self::MAX_BACKOFF_SECONDS);
+		while ($remainingDoublings > 0 && $delay < $this->maxBackoffSeconds) {
+			$delay = min($delay * $this->backoffFactor, $this->maxBackoffSeconds);
 			$remainingDoublings--;
 		}
 
