@@ -166,6 +166,7 @@ Properties:
 - The claim-first flow does not serialize different event IDs. Ordering across distinct events is governed by section 3.7.1 and remains a context responsibility.
 - The RabbitMQ message is acknowledged only after `InboxProcessor::process()` returns `PROCESSED`, `DUPLICATE` or `STALE`, which happens after the transaction commits.
 - If routing to retry or dead-letter fails, the consumer does not acknowledge and rethrows so RabbitMQ can redeliver.
+- Retry and dead-letter publications are confirmed before the original delivery is acknowledged. Publishing with `AMQP_MANDATORY` and receiving a basic ACK is not enough on its own: a returned unroutable message or a basic NACK also fails the routing and leaves the original delivery unacknowledged.
 
 ### 3.5 Failure classification
 
@@ -174,6 +175,7 @@ Properties:
 - Any other `Throwable` from a subscriber defaults to retryable. A subscriber that knows a business validation failure is permanent must throw an exception extending `PermanentIntegrationEventFailure`.
 - A malformed message is never silently acknowledged and discarded. It is routed to the dead-letter queue with the original body and diagnostic headers.
 - If retry or dead-letter routing fails, the original delivery is not acknowledged.
+- Phase 1 does not yet implement the permanent/retryable taxonomy. Malformed events are logged and routed through the bounded retry policy like any other failure. Phase 2 adds direct dead-letter routing for malformed and permanent failures and validates the subscription name and version with `subscribedTo()`.
 
 ### 3.6 RabbitMQ topology
 
@@ -208,6 +210,8 @@ All three exchanges are `topic` and durable. All three queues are durable.
 The queue-name binding `Q -> X` with routing key `Q` is mandatory: without it, messages returning from the retry queue would be unroutable. The `QR -> XR` and `QD -> XD` bindings are also mandatory: without them, retry and dead-letter publications would be silently dropped by the topic exchange. The configure command must declare all exchanges, queues, queue arguments and bindings idempotently.
 
 Retry and dead-letter publications preserve the original body, `message_id`, `content_type`, `content_encoding`, priority, persistent delivery mode and headers, adding or incrementing `redelivery_count`. Diagnostic dead-letter headers are added only for dead-letter publications.
+
+Retry and dead-letter publications use a dedicated confirmed publisher with its own connection and channel. It enables publisher confirms, publishes with `AMQP_MANDATORY`, and treats a return callback or a negative acknowledgement as failure. The original delivery is acknowledged only after the failure publication has been acknowledged by the broker. `INBOX_CONFIRM_TIMEOUT_SECONDS` defaults to `5.0` and bounds the wait for that confirmation.
 
 The fallback `INBOX_EXCHANGE -> OUTBOX_EXCHANGE -> integration_events` only provides a default; it does not enforce equality. `InboxExchangeValidator` must compare `config('inbox.exchange')` and `config('outbox.exchange')` and fail fast with `IncompatibleInboxExchange` when they differ. The validator runs during `InboxServiceProvider` boot and at the start of `manager:integration-events:rabbitmq:configure`, so producer and consumer cannot use different exchanges unnoticed.
 
@@ -264,7 +268,7 @@ Aggregate-version policies detect stale or gapped events in the observed sequenc
 
 ### Description
 
-Deliver a runnable integration-event consumer that persists an Inbox claim and the consumer-side business change atomically, acknowledges after commit, safely handles duplicates and routes failures to retry or dead-letter queues. This phase does not create a production Inbox table or migration; it delivers the shared reusable components validated against ephemeral Inbox tables in real MySQL integration tests.
+Deliver a runnable integration-event consumer that persists an Inbox claim and the consumer-side business change atomically, acknowledges after commit, safely handles duplicates and routes failures to retry or dead-letter queues. Failure routing must be confirmed by the broker before the original delivery is acknowledged. This phase does not create a production Inbox table or migration; it delivers the shared reusable components validated against ephemeral Inbox tables in real MySQL integration tests.
 
 ### Public contracts
 
@@ -361,6 +365,7 @@ check constraint <table>_processing_state_is_consistent:
   - Implements `InboxStoreFactory`.
 - `Manager\Shared\Infrastructure\Bus\Event\RabbitMq\IntegrationEventEnvelopeDeserializer`
   - `deserialize(string $body, IntegrationEventSubscriber $subscriber): IntegrationEventEnvelope`
+  - Phase 1 validates only the envelope structure. Subscription name and version validation with `subscribedTo()` is explicitly deferred to Phase 2.
 - `Manager\Shared\Infrastructure\Bus\Event\RabbitMq\IntegrationEventQueueNameFormatter`
   - `format(IntegrationEventSubscriber $subscriber): string`
   - `formatRetry(IntegrationEventSubscriber $subscriber): string`
@@ -375,20 +380,35 @@ check constraint <table>_processing_state_is_consistent:
   - Declares `X`, `XR` and `XD` as durable topic exchanges.
   - Declares `Q`, `QR` and `QD` as durable queues, with `QR` using `x-message-ttl = 1000`, `x-dead-letter-exchange = X` and `x-dead-letter-routing-key = Q`.
   - Creates the queue-name and per-event-name bindings on `X`, the `QR -> XR` binding and the `QD -> XD` binding exactly as defined in section 3.6.
+- `Manager\Shared\Infrastructure\Bus\Event\RabbitMq\IntegrationEventFailurePublisher`
+  - Port used by the consumer to publish retry and dead-letter messages through a confirmed publisher.
+- `Manager\Shared\Infrastructure\Bus\Event\RabbitMq\RabbitMqConfirmedIntegrationEventPublisher`
+  - Implements `IntegrationEventFailurePublisher` with a dedicated connection and channel, `confirmSelect()`, `AMQP_MANDATORY` and return/NACK detection.
+  - Waits at most `INBOX_CONFIRM_TIMEOUT_SECONDS` for the broker confirmation.
+- `Manager\Shared\Infrastructure\Bus\Event\RabbitMq\IntegrationEventPublicationState`
+  - Tracks the ACK, NACK and returned-message outcomes for one confirmed publication. A returned message is a failure even when the broker also ACKs the publication.
+- `Manager\Shared\Infrastructure\Bus\Event\RabbitMq\Exception\IntegrationEventPublicationFailed`
+  - Sanitized failure raised when the broker does not confirm a retry or dead-letter publication.
 - `Manager\Shared\Infrastructure\Bus\Event\RabbitMq\RabbitMqIntegrationEventConsumer`
-  - `__construct(RabbitMqConnection $connection, IntegrationEventEnvelopeDeserializer $deserializer, InboxProcessor $processor, InboxLogger $logger, string $exchangeName, int $maxRetries)`
-  - `consume(IntegrationEventSubscriber $subscriber, string $queueName): void`
+  - `__construct(RabbitMqConnection $connection, IntegrationEventEnvelopeDeserializer $deserializer, InboxProcessor $processor, InboxLogger $logger, IntegrationEventFailurePublisher $failurePublisher, string $exchangeName, int $maxRetries)`
+  - `consume(IntegrationEventSubscriber $subscriber, string $queueName): void` runs the blocking worker loop.
+  - `consumeOne(IntegrationEventSubscriber $subscriber, string $queueName): bool` processes at most one message and returns `false` when the queue is empty. It accepts only an `AMQPEnvelope` from `AMQPQueue::get()`.
+  - Logs malformed events without logging their body or raw error message.
+  - Acknowledges the original delivery only after the Inbox transaction commits or a duplicate/stale outcome is verified, and after any retry or dead-letter publication has been confirmed by the broker.
 - `Manager\Shared\Infrastructure\Inbox\InboxLogger`
   - Basic structured logging for processed, duplicate, malformed, retry and dead-letter outcomes.
   - Never logs payload values.
 - `Manager\Shared\Infrastructure\Console\IntegrationEvent\ConsumeIntegrationRabbitMqEventsCommand`
   - Signature: `manager:integration-events:rabbitmq:consume {queue} {quantity}`
+  - `quantity` is the maximum number of messages processed per invocation, not a required batch size. The command exits successfully when the queue is empty before reaching the limit.
+  - A non-positive or non-numeric `quantity` exits with failure without consuming any message.
   - Intended to run as a single active worker per queue. It does not coordinate multiple workers or provide per-aggregate ordering.
 - `Manager\Shared\Infrastructure\Console\IntegrationEvent\ConfigureIntegrationRabbitMqCommand`
   - Signature: `manager:integration-events:rabbitmq:configure`
+  - Accepts any iterable of subscribers; arrays and `Traversable` instances are supported.
   - Calls `InboxExchangeValidator` before configuring the topology and exits with a clear failure when the exchanges differ.
 - `App\Providers\InboxServiceProvider`
-  - Binds the connection factory, store factory, processor, deserializer, locator, configurer, consumer, logger and commands.
+  - Binds the connection factory, store factory, processor, deserializer, locator, configurer, confirmed failure publisher, consumer, logger and commands.
   - Registers the `integration_event_subscriber` tag.
   - Calls `InboxExchangeValidator` during boot and fails fast when `inbox.exchange` and `outbox.exchange` differ.
 - `config/inbox.php`:
@@ -403,6 +423,7 @@ return [
 	// Fallback only. InboxExchangeValidator enforces equality with outbox.exchange.
 	'exchange' => env('INBOX_EXCHANGE', env('OUTBOX_EXCHANGE', 'integration_events')),
 	'max_retries' => (int) env('INBOX_MAX_RETRIES', 5),
+	'confirm_timeout_seconds' => (float) env('INBOX_CONFIRM_TIMEOUT_SECONDS', 5.0),
 	'retention_days' => env('INBOX_RETENTION_DAYS'),
 	'logging' => [
 		'enabled' => (bool) env('INBOX_LOGGING_ENABLED', true),
@@ -439,12 +460,14 @@ return [
 - [ ] Implement `InboxConnectionFactory`, `MySqlInboxStore` and `MySqlInboxStoreFactory`. Ensure the store and `TransactionalSession` receive the identical default connection object.
 - [ ] Implement `IntegrationEventEnvelopeDeserializer` for the Phase 1 envelope and subscriber lookup.
 - [ ] Implement `IntegrationEventQueueNameFormatter`, `IntegrationEventSubscriberLocator` and `IntegrationEventRabbitMqConfigurer`. Declare all exchanges, queues and bindings from section 3.6, including the queue-name and event-name bindings on the main exchange, the retry-queue binding on the retry exchange and the dead-letter-queue binding on the dead-letter exchange.
-- [ ] Implement `RabbitMqIntegrationEventConsumer` with ack-after-commit, duplicate acknowledgement, fixed 1,000 ms retry routing and dead-letter routing.
+- [ ] Implement `IntegrationEventFailurePublisher`, `RabbitMqConfirmedIntegrationEventPublisher`, `IntegrationEventPublicationState` and `IntegrationEventPublicationFailed`.
+- [ ] Implement `RabbitMqIntegrationEventConsumer` with ack-after-commit, duplicate acknowledgement, malformed-event logging, fixed 1,000 ms retry routing, dead-letter routing and confirmed failure publication before the original ACK.
+- [ ] Implement `consume()` for the blocking worker and `consumeOne()` for bounded command invocations. Treat a missing envelope from `AMQPQueue::get()` as an empty queue.
 - [ ] Implement basic `InboxLogger` without payload logging.
-- [ ] Implement the consume and configure commands.
+- [ ] Implement the consume and configure commands. The consume command processes at most `quantity` messages, exits successfully on an empty queue and fails without consuming when `quantity` is not positive. The configure command accepts any iterable of subscribers.
 - [ ] Implement `InboxExchangeValidator` and `IncompatibleInboxExchange`; invoke the validator from `InboxServiceProvider` boot and from the configure command.
 - [ ] Add `config/inbox.php`, `InboxServiceProvider`, provider registration, command registration and `.env.example` variables.
-- [ ] Add unit tests for the envelope, processor, deserializer, queue formatter and logger, including accepting a non-UUID `aggregateId`, requiring a UUID `eventId`, and accepting exactly `Y-m-d\TH:i:s\Z` for `occurredAt` while rejecting microseconds, offsets, missing `Z` and non-UTC representations.
+- [ ] Add unit tests for the envelope, processor, deserializer, queue formatter, publication state and logger, including accepting a non-UUID `aggregateId`, requiring a UUID `eventId`, and accepting exactly `Y-m-d\TH:i:s\Z` for `occurredAt` while rejecting microseconds, offsets, missing `Z` and non-UTC representations.
 - [ ] Add exchange configuration tests: matching values pass; differing values throw `IncompatibleInboxExchange` with both exchange names; the configure command exits with failure when the exchanges differ.
 - [ ] Add a producer-consumer contract test that serializes a real `OutboxRecord` with `OutboxEnvelopeSerializer` and deserializes it with `IntegrationEventEnvelopeDeserializer`; assert the exact `occurredAt` value and all envelope fields.
 - [ ] Use a unique ephemeral Inbox table name per test, for example `inbox_probe_<uuid>`, and a separate business probe table when needed. Create both in `setUp`, drop them in `finally`/`tearDown`, and never reuse them across tests.
@@ -462,6 +485,12 @@ return [
 - [ ] Add an integration test that inserts an incomplete committed Inbox row directly, then processes the same event: assert that it is not treated as a safe duplicate and that the processor raises a retryable failure.
 - [ ] Add a test asserting that database errors other than the `(consumer, event_id)` unique violation are rethrown and never classified as duplicates.
 - [ ] Add consumer tests asserting the fixed 1,000 ms retry delay, the initial delivery plus five retries, and dead-lettering after the fifth retry. Assert that no exponential or progressive backoff is used.
+- [ ] Add consumer tests asserting that an empty queue returns `false` from `consumeOne()`, that malformed events are logged without their body, and that the original delivery is not acknowledged when confirmed failure routing fails.
+- [ ] Add real RabbitMQ tests for the confirmed publisher: a routable mandatory publication succeeds only after broker confirmation, an unroutable publication fails with a sanitized exception, and the publisher recovers for the next publication.
+- [ ] Add a real broker-confirmation timeout test that reaches `AMQPChannel::waitForConfirm()` with a sub-microsecond timeout, asserts `IntegrationEventPublicationFailed`, verifies the message reached the broker, and verifies that the publisher resets its connection, channel and exchange cache.
+- [ ] Add a consumer test using the real timed-out publisher: assert the original delivery is not acknowledged, the retry copy reached the retry queue and the original can be recovered for redelivery.
+- [ ] Add consume-command tests asserting the maximum-quantity semantics, successful exit on an empty queue, failure without consumption for a non-positive or non-numeric quantity, and a second invocation that processes the message left by the first invocation.
+- [ ] Add configure-command tests asserting that array and container-resolved iterables are accepted.
 - [ ] Verify in test cleanup that ephemeral Inbox and business probe tables do not remain after teardown.
 - [ ] In tests, register a `test` context pointing at the ephemeral table and use it only through test configuration; do not add it to `config/inbox.php`.
 - [ ] Add a test subscriber fixture with configurable event map, consumer name and handler. Do not register it in production service providers.

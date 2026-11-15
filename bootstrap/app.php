@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\Route;
 use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\ConfigureRabbitMqCommand;
 use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\ConsumeRabbitMqDomainEventsCommand;
 use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\GenerateSupervisorRabbitMqConsumerFilesCommand;
+use Manager\Shared\Infrastructure\Console\IntegrationEvent\ConfigureIntegrationRabbitMqCommand;
+use Manager\Shared\Infrastructure\Console\IntegrationEvent\ConsumeIntegrationRabbitMqEventsCommand;
 use Manager\Shared\Infrastructure\Console\Outbox\OutboxStatusCommand;
 use Manager\Shared\Infrastructure\Console\Outbox\PublishOutboxCommand;
 use Manager\Shared\Infrastructure\Console\Outbox\PurgeOutboxCommand;
@@ -27,7 +29,9 @@ return Application::configure(basePath: dirname(__DIR__))
 	)
 	->withCommands([
 		ConfigureRabbitMqCommand::class,
+		ConfigureIntegrationRabbitMqCommand::class,
 		ConsumeRabbitMqDomainEventsCommand::class,
+		ConsumeIntegrationRabbitMqEventsCommand::class,
 		GenerateSupervisorRabbitMqConsumerFilesCommand::class,
 		PublishOutboxCommand::class,
 		PurgeOutboxCommand::class,
