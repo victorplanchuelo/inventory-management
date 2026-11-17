@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Manager\Shared\Application\Inbox\Exception;
 
-use RuntimeException;
+use Manager\Shared\Application\IntegrationEvent\Exception\PermanentIntegrationEventFailure;
 
-final class InvalidInboxConsumer extends RuntimeException
+final class InvalidInboxConsumer extends PermanentIntegrationEventFailure
 {
 	public static function becauseConsumerNameIsInvalid(string $consumerName): self
 	{

@@ -101,7 +101,11 @@ final class OutboxEnvelopeContractTest extends UnitTestCase
 		$body = (new OutboxEnvelopeSerializer())->serialize($record);
 		$envelope = (new IntegrationEventEnvelopeDeserializer())->deserialize(
 			$body,
-			new TestIntegrationEventSubscriber('test.contract', [], static function (): void {})
+			new TestIntegrationEventSubscriber(
+				'test.contract',
+				[IntegrationEventFixture::EVENT_NAME => [IntegrationEventFixture::EVENT_VERSION]],
+				static function (): void {}
+			)
 		);
 
 		$this->assertStringNotContainsString('aggregateVersion', $body);

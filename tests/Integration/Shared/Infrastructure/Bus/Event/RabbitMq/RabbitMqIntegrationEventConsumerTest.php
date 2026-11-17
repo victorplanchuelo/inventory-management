@@ -10,6 +10,9 @@ use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Manager\Shared\Application\Inbox\InboxConsumerValidator;
 use Manager\Shared\Application\Inbox\InboxProcessor;
+use Manager\Shared\Application\IntegrationEvent\Exception\InvalidIntegrationEventEnvelope;
+use Manager\Shared\Application\IntegrationEvent\Exception\UnsupportedIntegrationEventName;
+use Manager\Shared\Application\IntegrationEvent\Exception\UnsupportedIntegrationEventVersion;
 use Manager\Shared\Application\IntegrationEvent\IntegrationEventEnvelope;
 use Manager\Shared\Domain\ValueObject\SimpleUuid;
 use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\Exception\IntegrationEventPublicationFailed;
@@ -27,6 +30,8 @@ use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Tests\Shared\Infrastructure\Inbox\EphemeralInboxTable;
 use Tests\Shared\Infrastructure\IntegrationEvent\IntegrationEventFixture;
+use Tests\Shared\Infrastructure\IntegrationEvent\PermanentSubscriberFailure;
+use Tests\Shared\Infrastructure\IntegrationEvent\RetryableSubscriberFailure;
 use Tests\Shared\Infrastructure\IntegrationEvent\TestIntegrationEventSubscriber;
 use Tests\Shared\Infrastructure\PhpUnit\CollectingLogger;
 use Tests\Shared\Infrastructure\PhpUnit\InfrastructureTestCase;
@@ -119,15 +124,145 @@ final class RabbitMqIntegrationEventConsumerTest extends InfrastructureTestCase
 	}
 
 	#[Test]
-	public function it_should_log_a_malformed_event_and_route_it_to_retry(): void
+	public function it_should_log_a_malformed_event_and_dead_letter_it_without_retrying(): void
 	{
 		$this->publish('{"eventId":');
 
 		$this->assertTrue($this->consumer->consumeOne($this->subscriber, $this->queueName()));
 		$this->assertContains('inbox.event.malformed', array_column($this->logger->records(), 'message'));
 		$this->assertSame(0, $this->businessRows()->count());
+		$this->assertSame(0, $this->retryQueue()->declareQueue());
+		$this->assertSame(1, $this->deadLetterQueue()->declareQueue());
 
-		$this->eventually(fn () => $this->assertSame(1, $this->retryQueue()->declareQueue()));
+		$deadLetter = $this->deadLetterQueue()->get(AMQP_AUTOACK);
+
+		$this->assertNotNull($deadLetter);
+		$this->assertSame('{"eventId":', $deadLetter->getBody());
+		$this->assertSame(InvalidIntegrationEventEnvelope::class, $deadLetter->getHeaders()['x-error-class']);
+		$this->assertSame($this->subscriber->consumerName(), $deadLetter->getHeaders()['x-consumer']);
+		$this->assertSame($this->queueName(), $deadLetter->getHeaders()['x-original-queue']);
+		$this->assertArrayNotHasKey('x-event-id', $deadLetter->getHeaders());
+		$this->assertArrayNotHasKey('x-event-name', $deadLetter->getHeaders());
+		$this->assertSame(0, (int) $deadLetter->getHeaders()['redelivery_count']);
+		$this->assertMatchesRegularExpression(
+			'/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/',
+			$deadLetter->getHeaders()['x-failed-at']
+		);
+	}
+
+	#[Test]
+	public function it_should_dead_letter_an_unsupported_event_name_with_the_event_headers(): void
+	{
+		$data = IntegrationEventFixture::data(['eventName' => 'inventory.stock_removed']);
+
+		$this->publish(IntegrationEventFixture::json($data));
+
+		$this->assertTrue($this->consumer->consumeOne($this->subscriber, $this->queueName()));
+		$this->assertSame(0, $this->retryQueue()->declareQueue());
+		$this->assertSame(1, $this->deadLetterQueue()->declareQueue());
+		$this->assertSame(0, $this->businessRows()->count());
+
+		$deadLetter = $this->deadLetterQueue()->get(AMQP_AUTOACK);
+
+		$this->assertNotNull($deadLetter);
+		$this->assertSame(UnsupportedIntegrationEventName::class, $deadLetter->getHeaders()['x-error-class']);
+		$this->assertSame(IntegrationEventFixture::EVENT_ID, $deadLetter->getHeaders()['x-event-id']);
+		$this->assertSame('inventory.stock_removed', $deadLetter->getHeaders()['x-event-name']);
+		$this->assertNotContains('inbox.event.malformed', array_column($this->logger->records(), 'message'));
+	}
+
+	#[Test]
+	public function it_should_dead_letter_an_unsupported_event_version_with_the_event_headers(): void
+	{
+		$data = IntegrationEventFixture::data(['eventVersion' => '2']);
+
+		$this->publish(IntegrationEventFixture::json($data));
+
+		$this->assertTrue($this->consumer->consumeOne($this->subscriber, $this->queueName()));
+		$this->assertSame(0, $this->retryQueue()->declareQueue());
+		$this->assertSame(1, $this->deadLetterQueue()->declareQueue());
+		$this->assertSame(0, $this->businessRows()->count());
+
+		$deadLetter = $this->deadLetterQueue()->get(AMQP_AUTOACK);
+
+		$this->assertNotNull($deadLetter);
+		$this->assertSame(UnsupportedIntegrationEventVersion::class, $deadLetter->getHeaders()['x-error-class']);
+		$this->assertSame(IntegrationEventFixture::EVENT_ID, $deadLetter->getHeaders()['x-event-id']);
+		$this->assertSame(IntegrationEventFixture::EVENT_NAME, $deadLetter->getHeaders()['x-event-name']);
+		$this->assertNotContains('inbox.event.malformed', array_column($this->logger->records(), 'message'));
+	}
+
+	#[Test]
+	public function it_should_dead_letter_a_permanent_subscriber_failure_without_claiming_the_event(): void
+	{
+		$eventId = $this->randomEventId();
+		$subscriber = $this->subscriber(
+			$this->subscriber->consumerName(),
+			static function (): void {
+				throw new PermanentSubscriberFailure('permanent failure with password=super-secret-value');
+			}
+		);
+
+		$this->publish(IntegrationEventFixture::json(['eventId' => $eventId]));
+
+		$this->assertTrue($this->consumer->consumeOne($subscriber, $this->queueName()));
+		$this->assertSame(0, $this->retryQueue()->declareQueue());
+		$this->assertSame(1, $this->deadLetterQueue()->declareQueue());
+		$this->assertSame(0, $this->businessRows()->count());
+		$this->assertNull($this->inboxRow($subscriber->consumerName(), $eventId));
+		$this->assertSame(0, $this->connection->transactionLevel());
+
+		$deadLetter = $this->deadLetterQueue()->get(AMQP_AUTOACK);
+
+		$this->assertNotNull($deadLetter);
+		$this->assertSame(PermanentSubscriberFailure::class, $deadLetter->getHeaders()['x-error-class']);
+		$this->assertSame($eventId, $deadLetter->getHeaders()['x-event-id']);
+		$this->assertSame(IntegrationEventFixture::EVENT_NAME, $deadLetter->getHeaders()['x-event-name']);
+		$this->assertSame($subscriber->consumerName(), $deadLetter->getHeaders()['x-consumer']);
+		$this->assertSame($this->queueName(), $deadLetter->getHeaders()['x-original-queue']);
+		$this->assertSame(0, (int) $deadLetter->getHeaders()['redelivery_count']);
+		$this->assertStringContainsString('[REDACTED]', $deadLetter->getHeaders()['x-error-message']);
+		$this->assertStringNotContainsString('super-secret-value', $deadLetter->getHeaders()['x-error-message']);
+	}
+
+	#[Test]
+	public function it_should_retry_an_explicitly_retryable_subscriber_failure(): void
+	{
+		$eventId = $this->randomEventId();
+		$subscriber = $this->subscriber(
+			$this->subscriber->consumerName(),
+			static function (): void {
+				throw new RetryableSubscriberFailure('transient failure');
+			}
+		);
+
+		$this->publish(IntegrationEventFixture::json(['eventId' => $eventId]));
+
+		$this->assertTrue($this->consumer->consumeOne($subscriber, $this->queueName()));
+		$this->assertSame(1, $this->retryQueue()->declareQueue());
+		$this->assertSame(0, $this->deadLetterQueue()->declareQueue());
+		$this->assertNull($this->inboxRow($subscriber->consumerName(), $eventId));
+		$this->assertSame(0, $this->connection->transactionLevel());
+	}
+
+	#[Test]
+	public function it_should_dead_letter_an_event_for_an_invalid_consumer_identity(): void
+	{
+		$eventId = $this->randomEventId();
+		$invalidSubscriber = $this->subscriber('other.invalid_consumer', static function (): void {});
+
+		$this->publish(IntegrationEventFixture::json(['eventId' => $eventId]));
+
+		$this->assertTrue($this->consumer->consumeOne($invalidSubscriber, $this->queueName()));
+		$this->assertSame(0, $this->retryQueue()->declareQueue());
+		$this->assertSame(1, $this->deadLetterQueue()->declareQueue());
+		$this->assertNull($this->inboxRow('other.invalid_consumer', $eventId));
+
+		$deadLetter = $this->deadLetterQueue()->get(AMQP_AUTOACK);
+
+		$this->assertNotNull($deadLetter);
+		$this->assertSame('other.invalid_consumer', $deadLetter->getHeaders()['x-consumer']);
+		$this->assertSame($eventId, $deadLetter->getHeaders()['x-event-id']);
 	}
 
 	#[Test]
@@ -215,6 +350,16 @@ final class RabbitMqIntegrationEventConsumerTest extends InfrastructureTestCase
 		$this->assertSame($body, $deadLetter->getBody());
 		$this->assertSame($messageId, $deadLetter->getMessageId());
 		$this->assertSame(5, (int) ($deadLetter->getHeaders()['redelivery_count'] ?? 0));
+		$this->assertSame(RuntimeException::class, $deadLetter->getHeaders()['x-error-class']);
+		$this->assertSame('permanent failure', $deadLetter->getHeaders()['x-error-message']);
+		$this->assertSame($subscriber->consumerName(), $deadLetter->getHeaders()['x-consumer']);
+		$this->assertSame($eventId, $deadLetter->getHeaders()['x-event-id']);
+		$this->assertSame(IntegrationEventFixture::EVENT_NAME, $deadLetter->getHeaders()['x-event-name']);
+		$this->assertSame($this->queueName(), $deadLetter->getHeaders()['x-original-queue']);
+		$this->assertMatchesRegularExpression(
+			'/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/',
+			$deadLetter->getHeaders()['x-failed-at']
+		);
 	}
 
 	#[Test]

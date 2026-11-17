@@ -7,11 +7,17 @@ namespace Manager\Shared\Infrastructure\Bus\Event\RabbitMq;
 use AMQPEnvelope;
 use AMQPQueue;
 use AMQPQueueException;
+use DateTimeImmutable;
+use DateTimeZone;
 use Manager\Shared\Application\Inbox\InboxProcessingResult;
 use Manager\Shared\Application\Inbox\InboxProcessor;
+use Manager\Shared\Application\IntegrationEvent\Exception\IntegrationEventEnvelopeAware;
+use Manager\Shared\Application\IntegrationEvent\Exception\InvalidIntegrationEventEnvelope;
+use Manager\Shared\Application\IntegrationEvent\Exception\PermanentIntegrationEventFailure;
 use Manager\Shared\Application\IntegrationEvent\IntegrationEventEnvelope;
 use Manager\Shared\Application\IntegrationEvent\IntegrationEventSubscriber;
 use Manager\Shared\Infrastructure\Inbox\InboxLogger;
+use Manager\Shared\Infrastructure\Outbox\OutboxErrorSanitizer;
 use Throwable;
 
 final readonly class RabbitMqIntegrationEventConsumer
@@ -57,8 +63,13 @@ final readonly class RabbitMqIntegrationEventConsumer
 			try {
 				$event = $this->deserializer->deserialize($envelope->getBody(), $subscriber);
 			} catch (Throwable $error) {
-				$this->logger->recordMalformed($queueName, $error);
-				$this->routeFailure($envelope, $queue, $queueName, $error, null);
+				if ($error instanceof InvalidIntegrationEventEnvelope) {
+					$this->logger->recordMalformed($queueName, $error);
+				}
+
+				$event = $error instanceof IntegrationEventEnvelopeAware ? $error->envelope() : null;
+
+				$this->routeFailure($envelope, $queue, $queueName, $subscriber->consumerName(), $error, $event);
 				$queue->ack($envelope->getDeliveryTag());
 
 				return;
@@ -67,7 +78,7 @@ final readonly class RabbitMqIntegrationEventConsumer
 			try {
 				$result = $this->processor->process($event, $subscriber);
 			} catch (Throwable $error) {
-				$this->routeFailure($envelope, $queue, $queueName, $error, $event);
+				$this->routeFailure($envelope, $queue, $queueName, $subscriber->consumerName(), $error, $event);
 				$queue->ack($envelope->getDeliveryTag());
 
 				return;
@@ -87,15 +98,24 @@ final readonly class RabbitMqIntegrationEventConsumer
 		AMQPEnvelope $envelope,
 		AMQPQueue $queue,
 		string $queueName,
+		string $consumerName,
 		Throwable $error,
 		?IntegrationEventEnvelope $event
 	): void {
 		$headers = $envelope->getHeaders();
 		$redeliveryCount = $this->redeliveryCount($headers);
 		$routingKey = $queue->getName();
+		$permanent = $error instanceof PermanentIntegrationEventFailure;
 
-		if ($redeliveryCount >= $this->maxRetries) {
-			$this->publish('dead_letter-' . $this->exchangeName, $envelope, $routingKey, $headers, $redeliveryCount);
+		if ($permanent || $redeliveryCount >= $this->maxRetries) {
+			$this->publish(
+				'dead_letter-' . $this->exchangeName,
+				$envelope,
+				$routingKey,
+				$headers,
+				$redeliveryCount,
+				$this->deadLetterDiagnostics($consumerName, $queueName, $error, $event)
+			);
 			$this->logger->recordDeadLetter($event, $queueName, $error);
 
 			return;
@@ -109,13 +129,15 @@ final readonly class RabbitMqIntegrationEventConsumer
 
 	/**
 	 * @param array<string, mixed> $headers
+	 * @param array<string, string> $diagnostics
 	 */
 	private function publish(
 		string $exchangeName,
 		AMQPEnvelope $envelope,
 		string $routingKey,
 		array $headers,
-		int $redeliveryCount
+		int $redeliveryCount,
+		array $diagnostics = []
 	): void {
 		$this->failurePublisher->publish(
 			$exchangeName,
@@ -127,9 +149,34 @@ final readonly class RabbitMqIntegrationEventConsumer
 				'content_encoding' => $envelope->getContentEncoding(),
 				'priority' => $envelope->getPriority(),
 				'delivery_mode' => AMQP_DELIVERY_MODE_PERSISTENT,
-				'headers' => array_merge($headers, ['redelivery_count' => $redeliveryCount]),
+				'headers' => array_merge($headers, ['redelivery_count' => $redeliveryCount], $diagnostics),
 			]
 		);
+	}
+
+	/**
+	 * @return array<string, string>
+	 */
+	private function deadLetterDiagnostics(
+		string $consumerName,
+		string $queueName,
+		Throwable $error,
+		?IntegrationEventEnvelope $event
+	): array {
+		$diagnostics = [
+			'x-error-class' => $error::class,
+			'x-error-message' => (new OutboxErrorSanitizer())->sanitize($error->getMessage()),
+			'x-consumer' => $consumerName,
+			'x-original-queue' => $queueName,
+			'x-failed-at' => (new DateTimeImmutable('now', new DateTimeZone('UTC')))->format('Y-m-d\TH:i:s\Z'),
+		];
+
+		if ($event !== null) {
+			$diagnostics['x-event-id'] = $event->eventId;
+			$diagnostics['x-event-name'] = $event->eventName;
+		}
+
+		return $diagnostics;
 	}
 
 	/**

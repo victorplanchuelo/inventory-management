@@ -9,6 +9,16 @@ created_by:
     name: "DeepSeek V4.1 Flash Free"
     version: "4.1"
     reasoning_effort: "medium"
+
+implemented_by:
+  tool: "OpenCode"
+  model:
+    name: "DeepSeek V4.1 Flash Free"
+    version: "4.1"
+    reasoning_effort: "medium"
+
+last_implementation_at: "2026-11-15T12:02:24Z"
+has_completed_all_phases: "false"
 ---
 
 # Inbox, Idempotent Consumers and Event Ordering
@@ -452,50 +462,50 @@ return [
 
 ### To-do actions
 
-- [ ] Do not create a production Inbox table or migration. Add a test-only helper that creates an ephemeral Inbox table with the reference schema, constraints and indices, and drops it during teardown.
-- [ ] Implement `IntegrationEventEnvelope` with structural validation and `fromArray()`.
-- [ ] Implement `IntegrationEventSubscriber`.
-- [ ] Implement `InboxOutcome`, `InboxRecord`, `InboxStore`, `InboxStoreFactory`, `InboxProcessingResult`, `InboxConsumerValidator` and the Phase 1 exceptions.
-- [ ] Implement `InboxProcessor` with the claim-first flow, duplicate handling and transaction coordination. Use a dedicated internal exception to force a rollback on a duplicate-key loser before re-reading the committed winner.
-- [ ] Implement `InboxConnectionFactory`, `MySqlInboxStore` and `MySqlInboxStoreFactory`. Ensure the store and `TransactionalSession` receive the identical default connection object.
-- [ ] Implement `IntegrationEventEnvelopeDeserializer` for the Phase 1 envelope and subscriber lookup.
-- [ ] Implement `IntegrationEventQueueNameFormatter`, `IntegrationEventSubscriberLocator` and `IntegrationEventRabbitMqConfigurer`. Declare all exchanges, queues and bindings from section 3.6, including the queue-name and event-name bindings on the main exchange, the retry-queue binding on the retry exchange and the dead-letter-queue binding on the dead-letter exchange.
-- [ ] Implement `IntegrationEventFailurePublisher`, `RabbitMqConfirmedIntegrationEventPublisher`, `IntegrationEventPublicationState` and `IntegrationEventPublicationFailed`.
-- [ ] Implement `RabbitMqIntegrationEventConsumer` with ack-after-commit, duplicate acknowledgement, malformed-event logging, fixed 1,000 ms retry routing, dead-letter routing and confirmed failure publication before the original ACK.
-- [ ] Implement `consume()` for the blocking worker and `consumeOne()` for bounded command invocations. Treat a missing envelope from `AMQPQueue::get()` as an empty queue.
-- [ ] Implement basic `InboxLogger` without payload logging.
-- [ ] Implement the consume and configure commands. The consume command processes at most `quantity` messages, exits successfully on an empty queue and fails without consuming when `quantity` is not positive. The configure command accepts any iterable of subscribers.
-- [ ] Implement `InboxExchangeValidator` and `IncompatibleInboxExchange`; invoke the validator from `InboxServiceProvider` boot and from the configure command.
-- [ ] Add `config/inbox.php`, `InboxServiceProvider`, provider registration, command registration and `.env.example` variables.
-- [ ] Add unit tests for the envelope, processor, deserializer, queue formatter, publication state and logger, including accepting a non-UUID `aggregateId`, requiring a UUID `eventId`, and accepting exactly `Y-m-d\TH:i:s\Z` for `occurredAt` while rejecting microseconds, offsets, missing `Z` and non-UTC representations.
-- [ ] Add exchange configuration tests: matching values pass; differing values throw `IncompatibleInboxExchange` with both exchange names; the configure command exits with failure when the exchanges differ.
-- [ ] Add a producer-consumer contract test that serializes a real `OutboxRecord` with `OutboxEnvelopeSerializer` and deserializes it with `IntegrationEventEnvelopeDeserializer`; assert the exact `occurredAt` value and all envelope fields.
-- [ ] Use a unique ephemeral Inbox table name per test, for example `inbox_probe_<uuid>`, and a separate business probe table when needed. Create both in `setUp`, drop them in `finally`/`tearDown`, and never reuse them across tests.
-- [ ] Assert that ephemeral test tables use `CHAR(36)` for `id` and `event_id`, matching the migration template and Laravel's MySQL `uuid()` representation, and that their charset/collation match the test MySQL connection configuration rather than a hard-coded literal.
-- [ ] Add integration tests using real MySQL ephemeral Inbox tables for `MySqlInboxStore`, atomic commit and rollback, duplicate delivery, concurrent duplicate processing, RabbitMQ success, retry and dead-letter behavior. Do not replace persistence with mocks.
-- [ ] Add real RabbitMQ topology tests: an event published to `X` with routing key = event name reaches `Q`; a message published to `XR` with routing key = `Q` reaches `QR` and returns to `Q` through `X` after the TTL; a message published to `XD` with routing key = `Q` reaches `QD`. Assert topic/durable exchanges, durable queues, retry queue arguments and every binding from section 3.6.
-- [ ] Add a test asserting that `InboxConnectionFactory`, `TransactionalSession` and `MySqlInboxStore` receive the identical application default connection object.
-- [ ] Add a persistence test for optional `correlationId` and `causationId`: both are stored when present and remain null when absent.
-- [ ] Add a commit test where the subscriber writes a business probe row through the same connection object as the Inbox transaction: assert connection identity, that the Inbox row and business row are both persisted after commit and that the transaction level returns to zero.
-- [ ] Add a rollback test where the subscriber writes a business probe row through the same connection and then throws: assert that neither the Inbox row nor the business row persists and that the transaction level returns to zero.
-- [ ] Add tests proving the processor never commits an incomplete claim: after every successful path the row has both `processed_at` and `outcome`; after a `markProcessed` failure neither the claim nor the business effect persists; no committed row has both fields null.
-- [ ] Add a sequential duplicate test: assert that the second processing attempt returns `DUPLICATE` and does not repeat the business effect.
-- [ ] Add a real duplicate-race test using two MySQL connections or worker processes synchronized through pipes: assert that exactly one claim wins, the losing connection rolls back its own transaction (transaction level zero) before re-reading the winning row, and returns `DUPLICATE` only when that row is committed and complete. Assert that only one business effect is persisted.
-- [ ] Add a unit test for the duplicate-key branch where the winning row is absent or incomplete: assert that the processor throws a retryable failure instead of returning `DUPLICATE`.
-- [ ] Add an integration test that inserts an incomplete committed Inbox row directly, then processes the same event: assert that it is not treated as a safe duplicate and that the processor raises a retryable failure.
-- [ ] Add a test asserting that database errors other than the `(consumer, event_id)` unique violation are rethrown and never classified as duplicates.
-- [ ] Add consumer tests asserting the fixed 1,000 ms retry delay, the initial delivery plus five retries, and dead-lettering after the fifth retry. Assert that no exponential or progressive backoff is used.
-- [ ] Add consumer tests asserting that an empty queue returns `false` from `consumeOne()`, that malformed events are logged without their body, and that the original delivery is not acknowledged when confirmed failure routing fails.
-- [ ] Add real RabbitMQ tests for the confirmed publisher: a routable mandatory publication succeeds only after broker confirmation, an unroutable publication fails with a sanitized exception, and the publisher recovers for the next publication.
-- [ ] Add a real broker-confirmation timeout test that reaches `AMQPChannel::waitForConfirm()` with a sub-microsecond timeout, asserts `IntegrationEventPublicationFailed`, verifies the message reached the broker, and verifies that the publisher resets its connection, channel and exchange cache.
-- [ ] Add a consumer test using the real timed-out publisher: assert the original delivery is not acknowledged, the retry copy reached the retry queue and the original can be recovered for redelivery.
-- [ ] Add consume-command tests asserting the maximum-quantity semantics, successful exit on an empty queue, failure without consumption for a non-positive or non-numeric quantity, and a second invocation that processes the message left by the first invocation.
-- [ ] Add configure-command tests asserting that array and container-resolved iterables are accepted.
-- [ ] Verify in test cleanup that ephemeral Inbox and business probe tables do not remain after teardown.
-- [ ] In tests, register a `test` context pointing at the ephemeral table and use it only through test configuration; do not add it to `config/inbox.php`.
-- [ ] Add a test subscriber fixture with configurable event map, consumer name and handler. Do not register it in production service providers.
-- [ ] Run the relevant PHPUnit suites, targeted ECS and PHPStan. Fix issues without modifying the PHPStan baseline.
-- [ ] STOP. Present the changes to the user for review and suggest commit messages. Do not proceed to Phase 2 until the user explicitly asks.
+- [x] Do not create a production Inbox table or migration. Add a test-only helper that creates an ephemeral Inbox table with the reference schema, constraints and indices, and drops it during teardown.
+- [x] Implement `IntegrationEventEnvelope` with structural validation and `fromArray()`.
+- [x] Implement `IntegrationEventSubscriber`.
+- [x] Implement `InboxOutcome`, `InboxRecord`, `InboxStore`, `InboxStoreFactory`, `InboxProcessingResult`, `InboxConsumerValidator` and the Phase 1 exceptions.
+- [x] Implement `InboxProcessor` with the claim-first flow, duplicate handling and transaction coordination. Use a dedicated internal exception to force a rollback on a duplicate-key loser before re-reading the committed winner.
+- [x] Implement `InboxConnectionFactory`, `MySqlInboxStore` and `MySqlInboxStoreFactory`. Ensure the store and `TransactionalSession` receive the identical default connection object.
+- [x] Implement `IntegrationEventEnvelopeDeserializer` for the Phase 1 envelope and subscriber lookup.
+- [x] Implement `IntegrationEventQueueNameFormatter`, `IntegrationEventSubscriberLocator` and `IntegrationEventRabbitMqConfigurer`. Declare all exchanges, queues and bindings from section 3.6, including the queue-name and event-name bindings on the main exchange, the retry-queue binding on the retry exchange and the dead-letter-queue binding on the dead-letter exchange.
+- [x] Implement `IntegrationEventFailurePublisher`, `RabbitMqConfirmedIntegrationEventPublisher`, `IntegrationEventPublicationState` and `IntegrationEventPublicationFailed`.
+- [x] Implement `RabbitMqIntegrationEventConsumer` with ack-after-commit, duplicate acknowledgement, malformed-event logging, fixed 1,000 ms retry routing, dead-letter routing and confirmed failure publication before the original ACK.
+- [x] Implement `consume()` for the blocking worker and `consumeOne()` for bounded command invocations. Treat a missing envelope from `AMQPQueue::get()` as an empty queue.
+- [x] Implement basic `InboxLogger` without payload logging.
+- [x] Implement the consume and configure commands. The consume command processes at most `quantity` messages, exits successfully on an empty queue and fails without consuming when `quantity` is not positive. The configure command accepts any iterable of subscribers.
+- [x] Implement `InboxExchangeValidator` and `IncompatibleInboxExchange`; invoke the validator from `InboxServiceProvider` boot and from the configure command.
+- [x] Add `config/inbox.php`, `InboxServiceProvider`, provider registration, command registration and `.env.example` variables.
+- [x] Add unit tests for the envelope, processor, deserializer, queue formatter, publication state and logger, including accepting a non-UUID `aggregateId`, requiring a UUID `eventId`, and accepting exactly `Y-m-d\TH:i:s\Z` for `occurredAt` while rejecting microseconds, offsets, missing `Z` and non-UTC representations.
+- [x] Add exchange configuration tests: matching values pass; differing values throw `IncompatibleInboxExchange` with both exchange names; the configure command exits with failure when the exchanges differ.
+- [x] Add a producer-consumer contract test that serializes a real `OutboxRecord` with `OutboxEnvelopeSerializer` and deserializes it with `IntegrationEventEnvelopeDeserializer`; assert the exact `occurredAt` value and all envelope fields.
+- [x] Use a unique ephemeral Inbox table name per test, for example `inbox_probe_<uuid>`, and a separate business probe table when needed. Create both in `setUp`, drop them in `finally`/`tearDown`, and never reuse them across tests.
+- [x] Assert that ephemeral test tables use `CHAR(36)` for `id` and `event_id`, matching the migration template and Laravel's MySQL `uuid()` representation, and that their charset/collation match the test MySQL connection configuration rather than a hard-coded literal.
+- [x] Add integration tests using real MySQL ephemeral Inbox tables for `MySqlInboxStore`, atomic commit and rollback, duplicate delivery, concurrent duplicate processing, RabbitMQ success, retry and dead-letter behavior. Do not replace persistence with mocks.
+- [x] Add real RabbitMQ topology tests: an event published to `X` with routing key = event name reaches `Q`; a message published to `XR` with routing key = `Q` reaches `QR` and returns to `Q` through `X` after the TTL; a message published to `XD` with routing key = `Q` reaches `QD`. Assert topic/durable exchanges, durable queues, retry queue arguments and every binding from section 3.6.
+- [x] Add a test asserting that `InboxConnectionFactory`, `TransactionalSession` and `MySqlInboxStore` receive the identical application default connection object.
+- [x] Add a persistence test for optional `correlationId` and `causationId`: both are stored when present and remain null when absent.
+- [x] Add a commit test where the subscriber writes a business probe row through the same connection object as the Inbox transaction: assert connection identity, that the Inbox row and business row are both persisted after commit and that the transaction level returns to zero.
+- [x] Add a rollback test where the subscriber writes a business probe row through the same connection and then throws: assert that neither the Inbox row nor the business row persists and that the transaction level returns to zero.
+- [x] Add tests proving the processor never commits an incomplete claim: after every successful path the row has both `processed_at` and `outcome`; after a `markProcessed` failure neither the claim nor the business effect persists; no committed row has both fields null.
+- [x] Add a sequential duplicate test: assert that the second processing attempt returns `DUPLICATE` and does not repeat the business effect.
+- [x] Add a real duplicate-race test using two MySQL connections or worker processes synchronized through pipes: assert that exactly one claim wins, the losing connection rolls back its own transaction (transaction level zero) before re-reading the winning row, and returns `DUPLICATE` only when that row is committed and complete. Assert that only one business effect is persisted.
+- [x] Add a unit test for the duplicate-key branch where the winning row is absent or incomplete: assert that the processor throws a retryable failure instead of returning `DUPLICATE`.
+- [x] Add an integration test that inserts an incomplete committed Inbox row directly, then processes the same event: assert that it is not treated as a safe duplicate and that the processor raises a retryable failure.
+- [x] Add a test asserting that database errors other than the `(consumer, event_id)` unique violation are rethrown and never classified as duplicates.
+- [x] Add consumer tests asserting the fixed 1,000 ms retry delay, the initial delivery plus five retries, and dead-lettering after the fifth retry. Assert that no exponential or progressive backoff is used.
+- [x] Add consumer tests asserting that an empty queue returns `false` from `consumeOne()`, that malformed events are logged without their body, and that the original delivery is not acknowledged when confirmed failure routing fails.
+- [x] Add real RabbitMQ tests for the confirmed publisher: a routable mandatory publication succeeds only after broker confirmation, an unroutable publication fails with a sanitized exception, and the publisher recovers for the next publication.
+- [x] Add a real broker-confirmation timeout test that reaches `AMQPChannel::waitForConfirm()` with a sub-microsecond timeout, asserts `IntegrationEventPublicationFailed`, verifies the message reached the broker, and verifies that the publisher resets its connection, channel and exchange cache.
+- [x] Add a consumer test using the real timed-out publisher: assert the original delivery is not acknowledged, the retry copy reached the retry queue and the original can be recovered for redelivery.
+- [x] Add consume-command tests asserting the maximum-quantity semantics, successful exit on an empty queue, failure without consumption for a non-positive or non-numeric quantity, and a second invocation that processes the message left by the first invocation.
+- [x] Add configure-command tests asserting that array and container-resolved iterables are accepted.
+- [x] Verify in test cleanup that ephemeral Inbox and business probe tables do not remain after teardown.
+- [x] In tests, register a `test` context pointing at the ephemeral table and use it only through test configuration; do not add it to `config/inbox.php`.
+- [x] Add a test subscriber fixture with configurable event map, consumer name and handler. Do not register it in production service providers.
+- [x] Run the relevant PHPUnit suites, targeted ECS and PHPStan. Fix issues without modifying the PHPStan baseline.
+- [x] STOP. Present the changes to the user for review and suggest commit messages. Do not proceed to Phase 2 until the user explicitly asks.
 
 ## 5. Phase 2: Contract validation and failure classification
 
@@ -542,16 +552,16 @@ Complete the integration-event contract validation and formalize the failure tax
 
 ### To-do actions
 
-- [ ] Add the permanent and retryable failure base exceptions and the unsupported event name/version exceptions.
-- [ ] Reparent `InvalidIntegrationEventEnvelope` and `InvalidInboxConsumer`.
-- [ ] Complete envelope validation for identifiers, names, versions, timestamps, payload and optional metadata. Validate `eventId` as UUID, keep `aggregateId` as an opaque bounded string per ADR004, and enforce the exact producer `occurredAt` format `Y-m-d\TH:i:s\Z` with no microseconds or offsets.
-- [ ] Add supported event name and version validation to the deserializer using `subscribedTo()`.
-- [ ] Update the consumer to route permanent failures directly to dead-letter and retryable or unknown failures through the bounded retry policy.
-- [ ] Add dead-letter diagnostic headers without logging or exposing payload content.
-- [ ] Add tests for unsupported event names, unsupported versions, malformed JSON, invalid `occurredAt` formats, permanent subscriber failures, retryable failures and dead-letter header preservation.
-- [ ] Add tests asserting that permanent failures leave no successful Inbox row.
-- [ ] Run the relevant PHPUnit suites, targeted ECS and PHPStan. Fix issues without modifying the PHPStan baseline.
-- [ ] STOP. Present the changes to the user for review and suggest commit messages. Do not proceed to Phase 3 until the user explicitly asks.
+- [x] Add the permanent and retryable failure base exceptions and the unsupported event name/version exceptions.
+- [x] Reparent `InvalidIntegrationEventEnvelope` and `InvalidInboxConsumer`.
+- [x] Complete envelope validation for identifiers, names, versions, timestamps, payload and optional metadata. Validate `eventId` as UUID, keep `aggregateId` as an opaque bounded string per ADR004, and enforce the exact producer `occurredAt` format `Y-m-d\TH:i:s\Z` with no microseconds or offsets.
+- [x] Add supported event name and version validation to the deserializer using `subscribedTo()`.
+- [x] Update the consumer to route permanent failures directly to dead-letter and retryable or unknown failures through the bounded retry policy.
+- [x] Add dead-letter diagnostic headers without logging or exposing payload content.
+- [x] Add tests for unsupported event names, unsupported versions, malformed JSON, invalid `occurredAt` formats, permanent subscriber failures, retryable failures and dead-letter header preservation.
+- [x] Add tests asserting that permanent failures leave no successful Inbox row.
+- [x] Run the relevant PHPUnit suites, targeted ECS and PHPStan. Fix issues without modifying the PHPStan baseline.
+- [x] STOP. Present the changes to the user for review and suggest commit messages. Do not proceed to Phase 3 until the user explicitly asks.
 
 ## 6. Phase 3: Aggregate-version ordering
 
@@ -755,6 +765,6 @@ Expose enough operational information to diagnose processed, duplicate, stale, r
 
 ## 9. Next step
 
-Start with Phase 1: deliver the end-to-end idempotent integration-event consumer using ephemeral Inbox tables in integration tests, with atomic claim-first processing, duplicate handling, retry and dead-letter routing. Do not create a production Inbox table; the first real context consumer will add its own migration.
+Continue with Phase 3: add explicit aggregate-version ordering policies so consumers can distinguish duplicates, stale events and missing predecessors, while keeping duplicate detection ahead of stale detection.
 
-Inbox idempotency ready to roll by 🐢 💨 (Turbotuga™, [Codely](https://codely.com)'s mascot).
+Invalid contracts now take the dead-letter express lane by 🐢 💨 🚦 (Turbotuga™, [Codely](https://codely.com)'s mascot).

@@ -6,6 +6,8 @@ namespace Manager\Shared\Infrastructure\Bus\Event\RabbitMq;
 
 use JsonException;
 use Manager\Shared\Application\IntegrationEvent\Exception\InvalidIntegrationEventEnvelope;
+use Manager\Shared\Application\IntegrationEvent\Exception\UnsupportedIntegrationEventName;
+use Manager\Shared\Application\IntegrationEvent\Exception\UnsupportedIntegrationEventVersion;
 use Manager\Shared\Application\IntegrationEvent\IntegrationEventEnvelope;
 use Manager\Shared\Application\IntegrationEvent\IntegrationEventSubscriber;
 
@@ -29,7 +31,17 @@ final readonly class IntegrationEventEnvelopeDeserializer
 			throw InvalidIntegrationEventEnvelope::becauseItIsNotAnObject();
 		}
 
-		// Subscription name and version validation is added in Phase 2.
-		return IntegrationEventEnvelope::fromArray($data);
+		$event = IntegrationEventEnvelope::fromArray($data);
+		$subscriptions = $subscriber->subscribedTo();
+
+		if (!array_key_exists($event->eventName, $subscriptions)) {
+			throw UnsupportedIntegrationEventName::fromEnvelope($event);
+		}
+
+		if (!in_array($event->eventVersion, $subscriptions[$event->eventName], true)) {
+			throw UnsupportedIntegrationEventVersion::fromEnvelope($event);
+		}
+
+		return $event;
 	}
 }

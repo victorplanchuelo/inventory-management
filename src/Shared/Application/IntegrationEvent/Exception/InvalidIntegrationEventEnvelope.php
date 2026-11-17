@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace Manager\Shared\Application\IntegrationEvent\Exception;
 
-use RuntimeException;
-
-final class InvalidIntegrationEventEnvelope extends RuntimeException
+final class InvalidIntegrationEventEnvelope extends PermanentIntegrationEventFailure
 {
 	public static function becauseFieldIsMissing(string $field): self
 	{
