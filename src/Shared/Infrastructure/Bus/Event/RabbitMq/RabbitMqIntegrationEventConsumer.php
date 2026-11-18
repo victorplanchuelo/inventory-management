@@ -86,7 +86,7 @@ final readonly class RabbitMqIntegrationEventConsumer
 
 			if ($result === InboxProcessingResult::DUPLICATE) {
 				$this->logger->recordDuplicate($event, $subscriber->consumerName());
-			} else {
+			} elseif ($result === InboxProcessingResult::PROCESSED) {
 				$this->logger->recordProcessed($event, $subscriber->consumerName());
 			}
 

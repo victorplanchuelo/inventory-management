@@ -96,6 +96,21 @@ final readonly class MySqlInboxStore implements InboxStore
 		return $row === null ? null : InboxRecord::fromDatabaseRow((array) $row);
 	}
 
+	public function lastProcessedAggregateVersion(
+		string $consumer,
+		string $aggregateType,
+		string $aggregateId
+	): ?int {
+		$version = $this->connection->table($this->table)
+			->where('consumer', $consumer)
+			->where('aggregate_type', $aggregateType)
+			->where('aggregate_id', $aggregateId)
+			->where('outcome', InboxOutcome::PROCESSED->value)
+			->max('aggregate_version');
+
+		return is_numeric($version) ? (int) $version : null;
+	}
+
 	private function isConsumerEventIdDuplicate(QueryException $error): bool
 	{
 		if ((string) $error->getCode() !== '23000' && (int) ($error->errorInfo[1] ?? 0) !== 1062) {

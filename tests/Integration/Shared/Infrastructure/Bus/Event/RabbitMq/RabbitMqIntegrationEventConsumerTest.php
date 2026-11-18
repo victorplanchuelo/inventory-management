@@ -5,11 +5,18 @@ declare(strict_types=1);
 namespace Tests\Integration\Shared\Infrastructure\Bus\Event\RabbitMq;
 
 use AMQPQueue;
+use DateTimeImmutable;
+use DateTimeZone;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
+use Manager\Shared\Application\Inbox\AggregateVersionPolicy;
+use Manager\Shared\Application\Inbox\Exception\MissingAggregatePredecessor;
 use Manager\Shared\Application\Inbox\InboxConsumerValidator;
+use Manager\Shared\Application\Inbox\InboxOutcome;
 use Manager\Shared\Application\Inbox\InboxProcessor;
+use Manager\Shared\Application\Inbox\MonotonicAggregateVersionPolicy;
+use Manager\Shared\Application\Inbox\StrictSequentialAggregateVersionPolicy;
 use Manager\Shared\Application\IntegrationEvent\Exception\InvalidIntegrationEventEnvelope;
 use Manager\Shared\Application\IntegrationEvent\Exception\UnsupportedIntegrationEventName;
 use Manager\Shared\Application\IntegrationEvent\Exception\UnsupportedIntegrationEventVersion;
@@ -25,6 +32,7 @@ use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\RabbitMqConnection;
 use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\RabbitMqIntegrationEventConsumer;
 use Manager\Shared\Infrastructure\Database\MySqlTransactionalSession;
 use Manager\Shared\Infrastructure\Inbox\InboxLogger;
+use Manager\Shared\Infrastructure\Inbox\MySqlInboxStore;
 use Manager\Shared\Infrastructure\Inbox\MySqlInboxStoreFactory;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
@@ -363,6 +371,103 @@ final class RabbitMqIntegrationEventConsumerTest extends InfrastructureTestCase
 	}
 
 	#[Test]
+	public function it_should_retry_and_dead_letter_an_event_with_a_missing_predecessor(): void
+	{
+		$consumer = $this->subscriber->consumerName();
+		$subscriber = $this->subscriber(
+			$consumer,
+			function (IntegrationEventEnvelope $event): void {
+				$this->insertBusinessRow($event);
+			},
+			new StrictSequentialAggregateVersionPolicy()
+		);
+		$eventId = $this->randomEventId();
+		$body = IntegrationEventFixture::json(['eventId' => $eventId, 'aggregateVersion' => 5]);
+
+		$this->seedProcessedVersion($consumer, 3);
+		$this->publish($body);
+
+		for ($attempt = 1; $attempt <= 6; $attempt++) {
+			$this->assertTrue($this->consumer->consumeOne($subscriber, $this->queueName()));
+
+			if ($attempt < 6) {
+				usleep(1200000);
+			}
+		}
+
+		$this->assertSame(0, $this->businessRows()->count());
+		$this->assertNull($this->inboxRow($consumer, $eventId));
+		$this->assertSame(0, $this->queue()->declareQueue());
+		$this->assertSame(1, $this->deadLetterQueue()->declareQueue());
+
+		$deadLetter = $this->deadLetterQueue()->get(AMQP_AUTOACK);
+
+		$this->assertNotNull($deadLetter);
+		$this->assertSame($body, $deadLetter->getBody());
+		$this->assertSame(5, (int) ($deadLetter->getHeaders()['redelivery_count'] ?? 0));
+		$this->assertSame(MissingAggregatePredecessor::class, $deadLetter->getHeaders()['x-error-class']);
+		$this->assertStringContainsString('last processed version is <3>', $deadLetter->getHeaders()['x-error-message']);
+		$this->assertSame($eventId, $deadLetter->getHeaders()['x-event-id']);
+		$this->assertSame(IntegrationEventFixture::EVENT_NAME, $deadLetter->getHeaders()['x-event-name']);
+	}
+
+	#[Test]
+	public function it_should_ack_a_stale_event_without_retrying_or_invoking_the_subscriber(): void
+	{
+		$consumer = $this->subscriber->consumerName();
+		$subscriber = $this->subscriber(
+			$consumer,
+			function (IntegrationEventEnvelope $event): void {
+				$this->insertBusinessRow($event);
+			},
+			new MonotonicAggregateVersionPolicy()
+		);
+		$eventId = $this->randomEventId();
+
+		$this->seedProcessedVersion($consumer, 3);
+		$this->publish(IntegrationEventFixture::json(['eventId' => $eventId, 'aggregateVersion' => 2]));
+
+		$this->assertTrue($this->consumer->consumeOne($subscriber, $this->queueName()));
+		$this->assertSame(0, $this->businessRows()->count());
+		$this->assertSame(0, $this->retryQueue()->declareQueue());
+		$this->assertSame(0, $this->deadLetterQueue()->declareQueue());
+
+		$row = $this->inboxRow($consumer, $eventId);
+
+		$this->assertNotNull($row);
+		$this->assertNotNull($row->processed_at);
+		$this->assertSame(InboxOutcome::STALE->value, $row->outcome);
+		$this->assertNotContains('inbox.event.processed', array_column($this->logger->records(), 'message'));
+		$this->assertNotContains('inbox.event.duplicate', array_column($this->logger->records(), 'message'));
+	}
+
+	#[Test]
+	public function it_should_process_an_event_without_an_aggregate_version_without_invented_ordering(): void
+	{
+		$eventId = $this->randomEventId();
+		$subscriber = $this->subscriber(
+			$this->subscriber->consumerName(),
+			function (IntegrationEventEnvelope $event): void {
+				$this->insertBusinessRow($event);
+			},
+			new MonotonicAggregateVersionPolicy()
+		);
+
+		$this->publish(IntegrationEventFixture::json(['eventId' => $eventId, 'aggregateVersion' => null]));
+
+		$this->assertTrue($this->consumer->consumeOne($subscriber, $this->queueName()));
+		$this->assertSame(1, $this->businessRows()->count());
+		$this->assertSame(0, $this->retryQueue()->declareQueue());
+		$this->assertSame(0, $this->deadLetterQueue()->declareQueue());
+
+		$row = $this->inboxRow($subscriber->consumerName(), $eventId);
+
+		$this->assertNotNull($row);
+		$this->assertSame(InboxOutcome::PROCESSED->value, $row->outcome);
+		$this->assertNull($row->aggregate_version);
+	}
+
+	#[Test]
 	public function it_should_not_ack_when_failure_routing_cannot_be_confirmed(): void
 	{
 		$eventId = $this->randomEventId();
@@ -463,13 +568,30 @@ final class RabbitMqIntegrationEventConsumerTest extends InfrastructureTestCase
 		);
 	}
 
-	private function subscriber(string $consumerName, callable $handler): TestIntegrationEventSubscriber
-	{
+	private function subscriber(
+		string $consumerName,
+		callable $handler,
+		?AggregateVersionPolicy $orderingPolicy = null
+	): TestIntegrationEventSubscriber {
 		return new TestIntegrationEventSubscriber(
 			$consumerName,
 			[IntegrationEventFixture::EVENT_NAME => ['1']],
-			$handler
+			$handler,
+			$orderingPolicy
 		);
+	}
+
+	private function seedProcessedVersion(string $consumer, int $aggregateVersion): void
+	{
+		$event = IntegrationEventFixture::envelope([
+			'eventId' => $this->randomEventId(),
+			'aggregateVersion' => $aggregateVersion,
+		]);
+		$now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+		$store = new MySqlInboxStore($this->connection, $this->tables->inboxTable);
+
+		$store->claim($event, $consumer, $now);
+		$store->markProcessed($consumer, $event->eventId, InboxOutcome::PROCESSED, $now);
 	}
 
 	private function publish(string $body, string $messageId = 'message-id'): void

@@ -47,4 +47,12 @@ final readonly class SignalingInboxStore implements InboxStore
 	{
 		return $this->store->find($consumer, $eventId);
 	}
+
+	public function lastProcessedAggregateVersion(
+		string $consumer,
+		string $aggregateType,
+		string $aggregateId
+	): ?int {
+		return $this->store->lastProcessedAggregateVersion($consumer, $aggregateType, $aggregateId);
+	}
 }

@@ -8,4 +8,5 @@ enum InboxProcessingResult: string
 {
 	case PROCESSED = 'processed';
 	case DUPLICATE = 'duplicate';
+	case STALE = 'stale';
 }

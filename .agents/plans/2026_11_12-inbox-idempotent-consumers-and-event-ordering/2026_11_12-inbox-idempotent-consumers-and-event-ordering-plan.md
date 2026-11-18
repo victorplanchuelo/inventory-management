@@ -17,7 +17,7 @@ implemented_by:
     version: "4.1"
     reasoning_effort: "medium"
 
-last_implementation_at: "2026-11-15T12:02:24Z"
+last_implementation_at: "2026-11-18T09:39:29Z"
 has_completed_all_phases: "false"
 ---
 
@@ -609,20 +609,20 @@ Add explicit aggregate-version policies so consumers can distinguish duplicates,
 
 ### To-do actions
 
-- [ ] Implement the aggregate-version policy contract, decision enum and the three policies.
-- [ ] Add `orderingPolicy()` to `IntegrationEventSubscriber` and update the test subscriber fixtures.
-- [ ] Add `lastProcessedAggregateVersion()` to `InboxStore` and `MySqlInboxStore`.
-- [ ] Add `STALE` to `InboxProcessingResult`.
-- [ ] Update `InboxProcessor` to apply the policy, mark stale rows and throw the retryable missing-predecessor exception for gaps.
-- [ ] Add unit tests for every policy case, including missing versions, first observed version, next version, stale version and gap.
-- [ ] Add unit tests proving duplicate detection happens before stale detection.
-- [ ] Add integration tests proving stale events do not overwrite newer projection state and are recorded with `outcome = 'stale'`.
-- [ ] Add integration tests proving missing predecessors retry and eventually dead-letter, while events without aggregate versions process without invented ordering.
-- [ ] Add an integration test proving `lastProcessedAggregateVersion` ignores stale rows.
-- [ ] Document that strict sequencing requires a complete subscription and a context-owned initialization or reconciliation strategy.
-- [ ] Document that duplicate suppression does not serialize different events for the same aggregate, that the default deployment is one active consumer per queue, and that strict ordering with concurrent workers requires a context-owned per-aggregate mechanism.
-- [ ] Run the relevant PHPUnit suites, targeted ECS and PHPStan. Fix issues without modifying the PHPStan baseline.
-- [ ] STOP. Present the changes to the user for review and suggest commit messages. Do not proceed to Phase 4 until the user explicitly asks.
+- [x] Implement the aggregate-version policy contract, decision enum and the three policies.
+- [x] Add `orderingPolicy()` to `IntegrationEventSubscriber` and update the test subscriber fixtures.
+- [x] Add `lastProcessedAggregateVersion()` to `InboxStore` and `MySqlInboxStore`.
+- [x] Add `STALE` to `InboxProcessingResult`.
+- [x] Update `InboxProcessor` to apply the policy, mark stale rows and throw the retryable missing-predecessor exception for gaps.
+- [x] Add unit tests for every policy case, including missing versions, first observed version, next version, stale version and gap.
+- [x] Add unit tests proving duplicate detection happens before stale detection.
+- [x] Add integration tests proving stale events do not overwrite newer projection state and are recorded with `outcome = 'stale'`.
+- [x] Add integration tests proving missing predecessors retry and eventually dead-letter, while events without aggregate versions process without invented ordering.
+- [x] Add an integration test proving `lastProcessedAggregateVersion` ignores stale rows.
+- [x] Document that strict sequencing requires a complete subscription and a context-owned initialization or reconciliation strategy.
+- [x] Document that duplicate suppression does not serialize different events for the same aggregate, that the default deployment is one active consumer per queue, and that strict ordering with concurrent workers requires a context-owned per-aggregate mechanism.
+- [x] Run the relevant PHPUnit suites, targeted ECS and PHPStan. Fix issues without modifying the PHPStan baseline.
+- [x] STOP. Present the changes to the user for review and suggest commit messages. Do not proceed to Phase 4 until the user explicitly asks.
 
 ## 7. Phase 4: Observability, retention and operations documentation
 
@@ -765,6 +765,6 @@ Expose enough operational information to diagnose processed, duplicate, stale, r
 
 ## 9. Next step
 
-Continue with Phase 3: add explicit aggregate-version ordering policies so consumers can distinguish duplicates, stale events and missing predecessors, while keeping duplicate detection ahead of stale detection.
+Continue with Phase 4: add observability, safe Inbox retention and purge commands, and the consumer operations documentation, without introducing a generic monitoring or projection platform.
 
-Invalid contracts now take the dead-letter express lane by 🐢 💨 🚦 (Turbotuga™, [Codely](https://codely.com)'s mascot).
+Stale events now stop at the ordering gate while missing predecessors take a bounded detour by 🐢 💨 🚦 🛑 (Turbotuga™, [Codely](https://codely.com)'s mascot).

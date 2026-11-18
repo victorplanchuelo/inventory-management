@@ -9,13 +9,20 @@ use DateTimeZone;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
+use Manager\Shared\Application\Inbox\AggregateVersionPolicy;
 use Manager\Shared\Application\Inbox\Exception\InboxClaimNotVerified;
+use Manager\Shared\Application\Inbox\Exception\MissingAggregatePredecessor;
+use Manager\Shared\Application\Inbox\Exception\MissingAggregateVersion;
 use Manager\Shared\Application\Inbox\InboxConsumerValidator;
 use Manager\Shared\Application\Inbox\InboxOutcome;
 use Manager\Shared\Application\Inbox\InboxProcessingResult;
 use Manager\Shared\Application\Inbox\InboxProcessor;
 use Manager\Shared\Application\Inbox\InboxRecord;
 use Manager\Shared\Application\Inbox\InboxStore;
+use Manager\Shared\Application\Inbox\MonotonicAggregateVersionPolicy;
+use Manager\Shared\Application\Inbox\StrictSequentialAggregateVersionPolicy;
+use Manager\Shared\Application\IntegrationEvent\Exception\PermanentIntegrationEventFailure;
+use Manager\Shared\Application\IntegrationEvent\Exception\RetryableIntegrationEventFailure;
 use Manager\Shared\Application\IntegrationEvent\IntegrationEventEnvelope;
 use Manager\Shared\Application\Transaction\TransactionalSession;
 use Manager\Shared\Domain\ValueObject\SimpleUuid;
@@ -187,6 +194,14 @@ final class InboxProcessorTest extends InfrastructureTestCase
 			{
 				return $this->store->find($consumer, $eventId);
 			}
+
+			public function lastProcessedAggregateVersion(
+				string $consumer,
+				string $aggregateType,
+				string $aggregateId
+			): ?int {
+				return $this->store->lastProcessedAggregateVersion($consumer, $aggregateType, $aggregateId);
+			}
 		};
 
 		$processor = new InboxProcessor(
@@ -283,13 +298,156 @@ final class InboxProcessorTest extends InfrastructureTestCase
 		}
 	}
 
-	private function subscriber(callable $handler): TestIntegrationEventSubscriber
+	#[Test]
+	public function it_should_record_a_stale_event_without_overwriting_newer_state(): void
 	{
+		$newerEvent = $this->event(3);
+		$staleEvent = $this->event(2);
+		$processed = 0;
+		$subscriber = $this->subscriber(
+			function (IntegrationEventEnvelope $event) use (&$processed): void {
+				$processed++;
+				$this->insertBusinessRow($event, 'version ' . $event->aggregateVersion);
+			},
+			new MonotonicAggregateVersionPolicy()
+		);
+
+		$this->assertSame(InboxProcessingResult::PROCESSED, $this->processor->process($newerEvent, $subscriber));
+		$this->assertSame(InboxProcessingResult::STALE, $this->processor->process($staleEvent, $subscriber));
+		$this->assertSame(1, $processed);
+		$this->assertSame(1, $this->businessRows()->count());
+		$this->assertSame('version 3', $this->businessRows()->value('note'));
+
+		$staleRow = $this->connection->table($this->tables->inboxTable)
+			->where('consumer', self::CONSUMER)
+			->where('event_id', $staleEvent->eventId)
+			->first();
+
+		$this->assertNotNull($staleRow);
+		$this->assertNotNull($staleRow->processed_at);
+		$this->assertSame(InboxOutcome::STALE->value, $staleRow->outcome);
+		$this->assertSame(InboxProcessingResult::DUPLICATE, $this->processor->process($staleEvent, $subscriber));
+		$this->assertSame(1, $processed);
+	}
+
+	#[Test]
+	public function it_should_ignore_stale_rows_when_calculating_the_last_processed_version(): void
+	{
+		$processedEvent = $this->event(3);
+		$staleEvent = $this->event(9);
+		$now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+		$this->store->claim($processedEvent, self::CONSUMER, $now);
+		$this->store->markProcessed(self::CONSUMER, $processedEvent->eventId, InboxOutcome::PROCESSED, $now);
+		$this->store->claim($staleEvent, self::CONSUMER, $now);
+		$this->store->markProcessed(self::CONSUMER, $staleEvent->eventId, InboxOutcome::STALE, $now);
+
+		$this->assertSame(
+			3,
+			$this->store->lastProcessedAggregateVersion(self::CONSUMER, 'stock_item', IntegrationEventFixture::AGGREGATE_ID)
+		);
+		$this->assertNull($this->store->lastProcessedAggregateVersion(self::CONSUMER, 'stock_item', 'another-aggregate'));
+	}
+
+	#[Test]
+	public function it_should_roll_back_the_claim_when_a_predecessor_is_missing(): void
+	{
+		$subscriber = $this->subscriber(
+			function (IntegrationEventEnvelope $event): void {
+				$this->insertBusinessRow($event, 'processed');
+			},
+			new StrictSequentialAggregateVersionPolicy()
+		);
+		$firstEvent = $this->event(3);
+		$gapEvent = $this->event(5);
+
+		$this->assertSame(InboxProcessingResult::PROCESSED, $this->processor->process($firstEvent, $subscriber));
+
+		try {
+			$this->processor->process($gapEvent, $subscriber);
+			$this->fail('A version gap must fail with a missing-predecessor error.');
+		} catch (MissingAggregatePredecessor $error) {
+			$this->assertInstanceOf(RetryableIntegrationEventFailure::class, $error);
+			$this->assertStringContainsString('at version <5>', $error->getMessage());
+			$this->assertStringContainsString('last processed version is <3>', $error->getMessage());
+		}
+
+		$this->assertSame(1, $this->businessRows()->count());
+		$this->assertSame(
+			0,
+			$this->connection->table($this->tables->inboxTable)->where('event_id', $gapEvent->eventId)->count()
+		);
+		$this->assertSame(0, $this->connection->transactionLevel());
+		$this->assertSame(
+			3,
+			$this->store->lastProcessedAggregateVersion(self::CONSUMER, $gapEvent->aggregateType, $gapEvent->aggregateId)
+		);
+	}
+
+	#[Test]
+	public function it_should_reject_a_missing_version_under_strict_sequencing(): void
+	{
+		$event = $this->event(null);
+		$subscriber = $this->subscriber(
+			function (IntegrationEventEnvelope $event): void {
+				$this->insertBusinessRow($event, 'must not run');
+			},
+			new StrictSequentialAggregateVersionPolicy()
+		);
+
+		try {
+			$this->processor->process($event, $subscriber);
+			$this->fail('Strict sequencing must reject an event without an aggregate version.');
+		} catch (MissingAggregateVersion $error) {
+			$this->assertInstanceOf(PermanentIntegrationEventFailure::class, $error);
+		}
+
+		$this->assertSame(0, $this->businessRows()->count());
+		$this->assertSame(
+			0,
+			$this->connection->table($this->tables->inboxTable)->where('event_id', $event->eventId)->count()
+		);
+		$this->assertSame(0, $this->connection->transactionLevel());
+	}
+
+	#[Test]
+	public function it_should_process_events_without_versions_without_inventing_ordering(): void
+	{
+		$subscriber = $this->subscriber(
+			function (IntegrationEventEnvelope $event): void {
+				$this->insertBusinessRow($event, 'processed without version');
+			},
+			new MonotonicAggregateVersionPolicy()
+		);
+		$firstEvent = $this->event(null);
+		$secondEvent = $this->event(null);
+
+		$this->assertSame(InboxProcessingResult::PROCESSED, $this->processor->process($firstEvent, $subscriber));
+		$this->assertSame(InboxProcessingResult::PROCESSED, $this->processor->process($secondEvent, $subscriber));
+		$this->assertSame(2, $this->businessRows()->count());
+		$this->assertNull(
+			$this->store->lastProcessedAggregateVersion(self::CONSUMER, $firstEvent->aggregateType, $firstEvent->aggregateId)
+		);
+	}
+
+	private function subscriber(
+		callable $handler,
+		?AggregateVersionPolicy $orderingPolicy = null
+	): TestIntegrationEventSubscriber {
 		return new TestIntegrationEventSubscriber(
 			self::CONSUMER,
 			[IntegrationEventFixture::EVENT_NAME => ['1']],
-			$handler
+			$handler,
+			$orderingPolicy
 		);
+	}
+
+	private function event(?int $aggregateVersion): IntegrationEventEnvelope
+	{
+		return IntegrationEventFixture::envelope([
+			'eventId' => SimpleUuid::random()->value(),
+			'aggregateVersion' => $aggregateVersion,
+		]);
 	}
 
 	private function insertBusinessRow(IntegrationEventEnvelope $event, string $note): void

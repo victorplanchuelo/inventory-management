@@ -21,4 +21,10 @@ interface InboxStore
 	): void;
 
 	public function find(string $consumer, string $eventId): ?InboxRecord;
+
+	/**
+	 * Returns the highest version with outcome "processed" for the consumer and aggregate.
+	 * Stale rows never advance the applied version.
+	 */
+	public function lastProcessedAggregateVersion(string $consumer, string $aggregateType, string $aggregateId): ?int;
 }
