@@ -765,8 +765,10 @@ Expose enough operational information to diagnose processed, duplicate, stale, r
 
 ## 9. Next step
 
-All phases are complete. The Phase 4 changes were technically reviewed and approved on 2026-11-19, and Task004 is marked `Verified`. The implementation is delivered in a commit on `feature/stockflow-foundation` and has not been pushed.
+All phases are complete. The Phase 4 changes were technically reviewed and approved on 2026-11-19, and Task004 is marked `Verified`. The implementation is delivered in commit `93bb52c` (`feat(inbox): add observability and safe retention tooling`) on `feature/stockflow-foundation` and has not been pushed.
 
 No further implementation phase is planned. Do not push or open a pull request without explicit approval.
+
+The review conversation is exported in `.agents/plans/2026_11_12-inbox-idempotent-consumers-and-event-ordering/2026_11_12-inbox-idempotent-consumers-and-event-ordering-conversation.md`.
 
 Inbox records now leave the stage only through an explicit, observable purge, guided by sanitized logs and a clear status beacon 🐢 💨 🚦 🛑 🧹 📊 🔦 (Turbotuga™, [Codely](https://codely.com)'s mascot).

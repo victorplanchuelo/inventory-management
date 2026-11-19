@@ -4,7 +4,7 @@
 
 **Review status:** Technical verification and the automated acceptance checks are complete (2026-11-18). The technical review was approved on 2026-11-19.
 
-**Delivery:** Commit `feat(inbox): add observability and safe retention tooling` on `feature/stockflow-foundation`; not pushed.
+**Delivery:** Committed as `93bb52c` (`feat(inbox): add observability and safe retention tooling`) on `feature/stockflow-foundation`; not pushed.
 
 **Verification:** See the Task 004 entry in `docs/ai/implementation-log.md` and the operational runbook in `docs/architecture/inbox-operations.md`.
 

@@ -19,7 +19,7 @@ The table describes the documents currently present. It is not a commitment to e
 
 **Task 003 verification note:** `Verified` means that the automated checks and acceptance criteria were verified on 2026-11-11 and the technical review was approved on 2026-11-12. The implementation is committed as `c55984d` and pushed to `origin/feature/stockflow-foundation`.
 
-**Task 004 verification note:** `Verified` means that the automated checks and acceptance criteria were verified on 2026-11-18 and the technical review was approved on 2026-11-19. The implementation is committed on `feature/stockflow-foundation` and has not been pushed.
+**Task 004 verification note:** `Verified` means that the automated checks and acceptance criteria were verified on 2026-11-18 and the technical review was approved on 2026-11-19. The implementation is committed as `93bb52c` on `feature/stockflow-foundation` and has not been pushed.
 
 **Current implementation focus:** none. No task is currently approved for implementation.
 

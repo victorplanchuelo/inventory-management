@@ -104,7 +104,7 @@ Use one entry per task. Keep the log brief and factual.
 **Review Status**
 
 - `Verified` in Task004 means that the automated checks and acceptance criteria were verified on 2026-11-18 and the technical review was approved on 2026-11-19.
-- Delivery: committed as `feat(inbox): add observability and safe retention tooling` on `feature/stockflow-foundation`; not pushed.
+- Delivery: committed as `93bb52c feat(inbox): add observability and safe retention tooling` on `feature/stockflow-foundation`; not pushed.
 - No push or pull request was created for Phase 4.
 
 **Human Review**
