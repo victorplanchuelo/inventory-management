@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Manager\Shared\Infrastructure\Outbox;
 
-final readonly class OutboxErrorSanitizer
+use Manager\Shared\Infrastructure\Logging\ErrorSanitizer;
+
+final readonly class OutboxErrorSanitizer implements ErrorSanitizer
 {
 	public const REDACTED = '[REDACTED]';
 

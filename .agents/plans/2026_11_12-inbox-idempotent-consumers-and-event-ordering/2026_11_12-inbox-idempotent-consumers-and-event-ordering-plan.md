@@ -17,8 +17,8 @@ implemented_by:
     version: "4.1"
     reasoning_effort: "medium"
 
-last_implementation_at: "2026-11-18T09:39:29Z"
-has_completed_all_phases: "false"
+last_implementation_at: "2026-11-18T09:55:03Z"
+has_completed_all_phases: "true"
 ---
 
 # Inbox, Idempotent Consumers and Event Ordering
@@ -701,18 +701,18 @@ Expose enough operational information to diagnose processed, duplicate, stale, r
 
 ### To-do actions
 
-- [ ] Add the `ErrorSanitizer` interface and make `OutboxErrorSanitizer` implement it without changing behavior.
-- [ ] Expand `InboxLogger` with sanitized error messages, stale outcomes, latency and structured metadata.
-- [ ] Implement `InboxRetention`, `InboxStatusSnapshot`, `InboxMaintenanceStore` and `MySqlInboxMaintenance` with no default retention duration.
-- [ ] Implement the status and purge commands with context selection, validation and clear output.
-- [ ] Ensure purge only deletes committed rows older than the cutoff, never deletes recent or in-flight records and never runs automatically.
-- [ ] Add unit tests for retention, status snapshot and sanitized logging without payload, including missing and invalid retention values.
-- [ ] Add integration tests using real MySQL for purge cutoff, batch limit, context isolation, status counts and command validation failures. Do not replace persistence with mocks.
-- [ ] Write `docs/architecture/inbox-operations.md`, including the full migration template with `CHAR(36)` UUID types, the CHECK constraint limitation, the same-connection subscriber rule, the duplicate-key loser protocol, the fixed 1,000 ms backoff, exchange validation and the checklist for the first real context consumer.
-- [ ] Update `docs/README.md`, `docs/ai/implementation-log.md` and the Task004 document with verified results.
-- [ ] Run the relevant PHPUnit suites, targeted ECS and PHPStan. Fix issues without modifying the PHPStan baseline.
-- [ ] Run the full test suite and confirm no legacy tests regress.
-- [ ] STOP. Present the changes to the user for review and suggest commit messages. Do not commit, push or open a pull request without explicit approval.
+- [x] Add the `ErrorSanitizer` interface and make `OutboxErrorSanitizer` implement it without changing behavior.
+- [x] Expand `InboxLogger` with sanitized error messages, stale outcomes, latency and structured metadata.
+- [x] Implement `InboxRetention`, `InboxStatusSnapshot`, `InboxMaintenanceStore` and `MySqlInboxMaintenance` with no default retention duration.
+- [x] Implement the status and purge commands with context selection, validation and clear output.
+- [x] Ensure purge only deletes committed rows older than the cutoff, never deletes recent or in-flight records and never runs automatically.
+- [x] Add unit tests for retention, status snapshot and sanitized logging without payload, including missing and invalid retention values.
+- [x] Add integration tests using real MySQL for purge cutoff, batch limit, context isolation, status counts and command validation failures. Do not replace persistence with mocks.
+- [x] Write `docs/architecture/inbox-operations.md`, including the full migration template with `CHAR(36)` UUID types, the CHECK constraint limitation, the same-connection subscriber rule, the duplicate-key loser protocol, the fixed 1,000 ms backoff, exchange validation and the checklist for the first real context consumer.
+- [x] Update `docs/README.md`, `docs/ai/implementation-log.md` and the Task004 document with verified results.
+- [x] Run the relevant PHPUnit suites, targeted ECS and PHPStan. Fix issues without modifying the PHPStan baseline.
+- [x] Run the full test suite and confirm no legacy tests regress.
+- [x] STOP. Present the changes to the user for review and suggest commit messages. Do not commit, push or open a pull request without explicit approval.
 
 ## 8. Risks, assumptions and explicit exclusions
 
@@ -765,6 +765,8 @@ Expose enough operational information to diagnose processed, duplicate, stale, r
 
 ## 9. Next step
 
-Continue with Phase 4: add observability, safe Inbox retention and purge commands, and the consumer operations documentation, without introducing a generic monitoring or projection platform.
+All phases are complete. The Phase 4 changes were technically reviewed and approved on 2026-11-19, and Task004 is marked `Verified`. The implementation is delivered in a commit on `feature/stockflow-foundation` and has not been pushed.
 
-Stale events now stop at the ordering gate while missing predecessors take a bounded detour by 🐢 💨 🚦 🛑 (Turbotuga™, [Codely](https://codely.com)'s mascot).
+No further implementation phase is planned. Do not push or open a pull request without explicit approval.
+
+Inbox records now leave the stage only through an explicit, observable purge, guided by sanitized logs and a clear status beacon 🐢 💨 🚦 🛑 🧹 📊 🔦 (Turbotuga™, [Codely](https://codely.com)'s mascot).

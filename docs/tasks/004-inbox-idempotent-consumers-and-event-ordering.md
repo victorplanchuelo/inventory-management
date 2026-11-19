@@ -1,6 +1,13 @@
 # Task 04 — Inbox, Idempotent Consumers and Event Ordering
 
-**Status:** Proposed  
+**Status:** Verified
+
+**Review status:** Technical verification and the automated acceptance checks are complete (2026-11-18). The technical review was approved on 2026-11-19.
+
+**Delivery:** Commit `feat(inbox): add observability and safe retention tooling` on `feature/stockflow-foundation`; not pushed.
+
+**Verification:** See the Task 004 entry in `docs/ai/implementation-log.md` and the operational runbook in `docs/architecture/inbox-operations.md`.
+
 **Scope:** Shared integration infrastructure and bounded-context consumers  
 **Phase:** Reliable Event Consumption
 
@@ -376,22 +383,36 @@ Tests must use the actual persistence infrastructure for transaction and uniquen
 
 ## 16. Acceptance Criteria
 
-- [ ] Each consuming bounded context owns its Inbox.
-- [ ] Integration events are identified by a stable UUID `eventId`.
-- [ ] Duplicate detection uses event identity rather than transport-specific identifiers.
-- [ ] Inbox persistence and consumer-side changes are committed atomically.
-- [ ] Failed processing does not create a successful Inbox record.
-- [ ] Duplicate deliveries do not repeat business effects.
-- [ ] Concurrent duplicate deliveries are handled safely.
-- [ ] RabbitMQ acknowledgement occurs only after successful processing or safe duplicate detection.
-- [ ] Retry and dead-letter behaviour is explicit.
-- [ ] Event envelope and version validation are implemented.
-- [ ] Aggregate-version handling prevents stale events from overwriting newer state where version guarantees exist.
-- [ ] Missing predecessor behaviour is explicitly defined.
-- [ ] Events without aggregate versions do not receive invented ordering guarantees.
-- [ ] Inbox retention and cleanup rules are documented.
-- [ ] Unit and integration tests cover the required behaviour.
-- [ ] No cross-context database access or distributed transaction is introduced.
+- [x] Each consuming bounded context owns its Inbox.
+- [x] Integration events are identified by a stable UUID `eventId`.
+- [x] Duplicate detection uses event identity rather than transport-specific identifiers.
+- [x] Inbox persistence and consumer-side changes are committed atomically.
+- [x] Failed processing does not create a successful Inbox record.
+- [x] Duplicate deliveries do not repeat business effects.
+- [x] Concurrent duplicate deliveries are handled safely.
+- [x] RabbitMQ acknowledgement occurs only after successful processing or safe duplicate detection.
+- [x] Retry and dead-letter behaviour is explicit.
+- [x] Event envelope and version validation are implemented.
+- [x] Aggregate-version handling prevents stale events from overwriting newer state where version guarantees exist.
+- [x] Missing predecessor behaviour is explicitly defined.
+- [x] Events without aggregate versions do not receive invented ordering guarantees.
+- [x] Inbox retention and cleanup rules are documented.
+- [x] Unit and integration tests cover the required behaviour.
+- [x] No cross-context database access or distributed transaction is introduced.
+
+### Verification results (2026-11-18)
+
+- Full PHPUnit suite: 574 tests, 1,854 assertions, all passing.
+- New Phase 4 unit tests: 20 tests, 50 assertions.
+- New Phase 4 MySQL and command integration tests: 28 tests, 103 assertions.
+- Inbox application and store regression suites: 69 tests, 213 assertions.
+- RabbitMQ integration-event consumer suite: 15 tests, 154 assertions, including real broker routing and retry/dead-letter behaviour.
+- Targeted ECS: no errors.
+- PHPStan: no errors; the baseline was not modified.
+- `git diff --check`: no whitespace errors.
+- Environment: Docker app container with MySQL and RabbitMQ services.
+
+The technical review was approved on 2026-11-19. The task is `Verified`.
 
 ## 17. Dependencies
 

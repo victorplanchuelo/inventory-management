@@ -20,6 +20,7 @@ System structure, domain model and architectural conventions:
 - `architecture/domain-model.md`: domain concepts, aggregates, responsibilities and invariants.
 - `architecture/architectural-reference.md`: implementation conventions and architectural patterns.
 - `architecture/outbox-operations.md`: operational runbook for the Transactional Outbox, publisher supervision, monitoring, retries, retention and purge.
+- `architecture/inbox-operations.md`: operational runbook for per-context Inboxes, idempotent consumers, ordering policies, failure routing, observability, retention and purge.
 
 ## Architecture Decision Records
 
@@ -73,7 +74,8 @@ docs/
 │   ├── architecture.md
 │   ├── domain-model.md
 │   ├── architectural-reference.md
-│   └── outbox-operations.md
+│   ├── outbox-operations.md
+│   └── inbox-operations.md
 ├── adr/
 │   ├── 001-modular-monolith.md
 │   ├── 002-atomic-stock-reservation.md

@@ -64,7 +64,7 @@ final readonly class RabbitMqIntegrationEventConsumer
 				$event = $this->deserializer->deserialize($envelope->getBody(), $subscriber);
 			} catch (Throwable $error) {
 				if ($error instanceof InvalidIntegrationEventEnvelope) {
-					$this->logger->recordMalformed($queueName, $error);
+					$this->logger->recordMalformed($queueName, $error, $subscriber->consumerName());
 				}
 
 				$event = $error instanceof IntegrationEventEnvelopeAware ? $error->envelope() : null;
@@ -75,6 +75,8 @@ final readonly class RabbitMqIntegrationEventConsumer
 				return;
 			}
 
+			$startedAt = microtime(true);
+
 			try {
 				$result = $this->processor->process($event, $subscriber);
 			} catch (Throwable $error) {
@@ -84,10 +86,14 @@ final readonly class RabbitMqIntegrationEventConsumer
 				return;
 			}
 
+			$latencySeconds = microtime(true) - $startedAt;
+
 			if ($result === InboxProcessingResult::DUPLICATE) {
-				$this->logger->recordDuplicate($event, $subscriber->consumerName());
+				$this->logger->recordDuplicate($event, $subscriber->consumerName(), $latencySeconds);
 			} elseif ($result === InboxProcessingResult::PROCESSED) {
-				$this->logger->recordProcessed($event, $subscriber->consumerName());
+				$this->logger->recordProcessed($event, $subscriber->consumerName(), $latencySeconds);
+			} elseif ($result === InboxProcessingResult::STALE) {
+				$this->logger->recordStale($event, $subscriber->consumerName(), $latencySeconds);
 			}
 
 			$queue->ack($envelope->getDeliveryTag());
@@ -116,7 +122,7 @@ final readonly class RabbitMqIntegrationEventConsumer
 				$redeliveryCount,
 				$this->deadLetterDiagnostics($consumerName, $queueName, $error, $event)
 			);
-			$this->logger->recordDeadLetter($event, $queueName, $error);
+			$this->logger->recordDeadLetter($event, $consumerName, $queueName, $error);
 
 			return;
 		}
@@ -124,7 +130,7 @@ final readonly class RabbitMqIntegrationEventConsumer
 		$nextRedeliveryCount = $redeliveryCount + 1;
 
 		$this->publish('retry-' . $this->exchangeName, $envelope, $routingKey, $headers, $nextRedeliveryCount);
-		$this->logger->recordRetry($event, $queueName, $nextRedeliveryCount, $error);
+		$this->logger->recordRetry($event, $consumerName, $queueName, $nextRedeliveryCount, $error);
 	}
 
 	/**

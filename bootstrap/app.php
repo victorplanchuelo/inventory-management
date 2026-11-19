@@ -11,6 +11,8 @@ use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\ConsumeRabbitMqDomainEvents
 use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\GenerateSupervisorRabbitMqConsumerFilesCommand;
 use Manager\Shared\Infrastructure\Console\IntegrationEvent\ConfigureIntegrationRabbitMqCommand;
 use Manager\Shared\Infrastructure\Console\IntegrationEvent\ConsumeIntegrationRabbitMqEventsCommand;
+use Manager\Shared\Infrastructure\Console\IntegrationEvent\InboxStatusCommand;
+use Manager\Shared\Infrastructure\Console\IntegrationEvent\PurgeInboxCommand;
 use Manager\Shared\Infrastructure\Console\Outbox\OutboxStatusCommand;
 use Manager\Shared\Infrastructure\Console\Outbox\PublishOutboxCommand;
 use Manager\Shared\Infrastructure\Console\Outbox\PurgeOutboxCommand;
@@ -33,7 +35,9 @@ return Application::configure(basePath: dirname(__DIR__))
 		ConsumeRabbitMqDomainEventsCommand::class,
 		ConsumeIntegrationRabbitMqEventsCommand::class,
 		GenerateSupervisorRabbitMqConsumerFilesCommand::class,
+		InboxStatusCommand::class,
 		PublishOutboxCommand::class,
+		PurgeInboxCommand::class,
 		PurgeOutboxCommand::class,
 		RequeueOutboxCommand::class,
 		OutboxStatusCommand::class,

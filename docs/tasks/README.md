@@ -11,7 +11,7 @@ Each task describes a bounded piece of work derived from the project requirement
 | 001 | `001-inventory-foundation.md` | Inventory domain and application foundation. | Verified |
 | 002 | `002-shared-domain-event-compatibility-and-test-structure.md` | UUID aggregate identifiers, shared domain-event compatibility and test structure. | Verified |
 | 003 | `003-transactional-outbox-and-integration-infrastructure.md` | Transactional Outbox and reliable RabbitMQ publication. | Verified |
-| 004 | `004-inbox-idempotent-consumers-and-event-ordering.md` | Idempotent message consumption, Inbox and event ordering. | Proposed |
+| 004 | `004-inbox-idempotent-consumers-and-event-ordering.md` | Idempotent message consumption, Inbox and event ordering. | Verified |
 | 005 | `005-orders-inventory-availability-projection.md` | Orders-owned Inventory availability projection and advisory queries. | Proposed |
 | 006 | `006-inventory-persistence-and-stock-reservation.md` | Inventory persistence and Stock Reservation. | Proposed |
 
@@ -19,9 +19,11 @@ The table describes the documents currently present. It is not a commitment to e
 
 **Task 003 verification note:** `Verified` means that the automated checks and acceptance criteria were verified on 2026-11-11 and the technical review was approved on 2026-11-12. The implementation is committed as `c55984d` and pushed to `origin/feature/stockflow-foundation`.
 
+**Task 004 verification note:** `Verified` means that the automated checks and acceptance criteria were verified on 2026-11-18 and the technical review was approved on 2026-11-19. The implementation is committed on `feature/stockflow-foundation` and has not been pushed.
+
 **Current implementation focus:** none. No task is currently approved for implementation.
 
-Tasks 001, 002 and 003 have been implemented and verified. Task 003 has been reviewed, committed and pushed. Task 004 remains proposed and requires explicit approval before implementation starts.
+Tasks 001, 002, 003 and 004 have been implemented and verified. Tasks 003 and 004 have been reviewed and committed; only Task 003 has been pushed. Tasks 005 and 006 remain proposed and require explicit approval before implementation starts.
 
 Future capabilities must not be treated as current implementation scope merely because they appear in requirements, ADRs or proposed task documents.
 

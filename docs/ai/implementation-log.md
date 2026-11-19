@@ -50,6 +50,69 @@ Use one entry per task. Keep the log brief and factual.
 
 ## Log
 
+### 2026-11-18 — Task 004: Inbox, Idempotent Consumers and Event Ordering
+
+**Objective**
+
+- Provide per-context Inbox infrastructure with idempotent integration-event consumption, duplicate suppression, contract validation, aggregate-version ordering, bounded retry/dead-letter handling, observability, retention and purge.
+- Keep the Inbox independent from business projections, Event Sourcing, a generic CQRS framework and cross-context database access.
+
+**Research**
+
+- Files inspected: `AGENTS.md`, ADR 003/004/005, Task004, the existing Inbox application and infrastructure code, the Outbox operations tooling, RabbitMQ consumers and configurers, `config/inbox.php`, `bootstrap/app.php`, `bootstrap/providers.php`, `InboxServiceProvider`, PHPUnit/ECS/PHPStan configuration and the shared test infrastructure.
+- Existing behavior: phases 1 to 3 already provided the claim-first Inbox, envelope validation, failure taxonomy, RabbitMQ topology, ordering policies and retry/dead-letter routing. Observability was limited to basic structured logs, and no Inbox status, retention or purge tooling existed.
+- Reused contracts: `TransactionalSession`, `InboxStore`, `InboxProcessor`, `IntegrationEventEnvelope`, `RabbitMqIntegrationEventConsumer`, `OutboxErrorSanitizer`, Laravel's default MySQL connection and the existing command/test conventions.
+- Verified facts: no production Inbox table exists; integration tests use ephemeral tables with the reference schema; `processed_at` and `outcome` are nullable only for in-flight claims; the CHECK constraint does not prove commit completeness.
+- Hypotheses/risks: logging raw exception messages could leak secrets or allow log forging, so all failure messages are sanitized; a default retention duration would be unsafe, so purge fails closed unless a positive window is configured; a shared Inbox table would violate context ownership, so maintenance is explicitly per context.
+
+**Approved Plan**
+
+- Files to create/modify: retention/status/maintenance contracts, MySQL maintenance adapter, status and purge commands, shared `ErrorSanitizer` interface, expanded `InboxLogger`, provider and command registration, unit/integration tests, `docs/architecture/inbox-operations.md`, documentation indexes, this log and Task004 verification.
+- Design: per-context tables resolved from `config/inbox.contexts`; manual purge only; no default retention; purge deletes only complete rows older than the cutoff in oldest-first bounded batches; status reports counts and completion timestamps and marks purgeable records as not evaluated when no retention exists; logs include structured metadata, sanitized errors and latency for processed, duplicate and stale outcomes.
+- Planned tests: retention resolution and validation, status snapshot validation, sanitized logging without payloads, real-MySQL purge cutoff/batch/context isolation/status counts and command validation failures.
+- Acceptance criteria: `docs/tasks/004-inbox-idempotent-consumers-and-event-ordering.md`.
+
+**Implementation**
+
+- Changes made: added `ErrorSanitizer` and made `OutboxErrorSanitizer` implement it without behavior changes; added `InboxRetention`, `InvalidInboxRetention`, `InboxStatusSnapshot`, `InboxMaintenanceStore` and `MySqlInboxMaintenance`; added `manager:integration-events:inbox:status` and `manager:integration-events:inbox:purge`; expanded `InboxLogger` with stale outcomes, latency, sanitized error messages and structured metadata; logged stale events from the RabbitMQ consumer; injected the sanitizer through `InboxServiceProvider`; registered both commands in `bootstrap/app.php`; added unit and MySQL/RabbitMQ-backed tests; wrote the Inbox operations runbook and updated the documentation index.
+- Decisions taken: no retention default; purge is manual and fails closed; `--context` is optional, with all configured contexts processed when omitted; unknown contexts and non-positive/non-numeric retention or limits fail without deleting records; status reports `purgeableRecords = null` when no retention is configured or provided; `oldestProcessedAt` and `newestProcessedAt` cover all completed rows (processed and stale), matching purge eligibility; stale rows are logged separately from processed and duplicate outcomes.
+- Payload and security: Inbox rows store metadata only. Logs never include payload contents. Failure messages are sanitized and control characters normalized. Dead-letter diagnostics remain sanitized by `OutboxErrorSanitizer`.
+- Discarded changes and reasons: a default retention window was discarded because no duration is approved; automatic cleanup was discarded because purge must be explicit and observable; a shared Inbox table or generic migration builder was discarded because each context owns its schema and migration.
+- Scope preserved: no production Inbox table or migration, no business projection, no new dependency, no Event Sourcing, no Redis, no producer-side Outbox change and no legacy User/RabbitMqEventBus change.
+
+**Verification**
+
+- Command: `docker exec inventory-management-app-1 sh -lc 'cd /var/www/html && php vendor/bin/phpunit tests/Unit/Shared/Application/Inbox/InboxRetentionTest.php tests/Unit/Shared/Application/Inbox/InboxStatusSnapshotTest.php tests/Unit/Shared/Infrastructure/Inbox/InboxLoggerTest.php'`
+- Result: OK (20 tests, 50 assertions).
+- Command: `docker exec inventory-management-app-1 sh -lc 'cd /var/www/html && php vendor/bin/phpunit tests/Integration/Shared/Infrastructure/Inbox/MySqlInboxMaintenanceTest.php tests/Integration/Shared/Infrastructure/Console/Inbox/InboxCommandsTest.php'`
+- Result: OK (28 tests, 103 assertions). Covers purge cutoff, committed-only eligibility, oldest-first batch limits, context isolation, status counts, missing/invalid retention, invalid limits and unknown contexts.
+- Command: `docker exec inventory-management-app-1 sh -lc 'cd /var/www/html && php vendor/bin/phpunit tests/Unit/Shared/Application/Inbox tests/Unit/Shared/Infrastructure/Inbox tests/Integration/Shared/Application/Inbox'`
+- Result: OK (69 tests, 213 assertions).
+- Command: `docker exec inventory-management-app-1 sh -lc 'cd /var/www/html && php vendor/bin/phpunit tests/Integration/Shared/Infrastructure/Bus/Event/RabbitMq/RabbitMqIntegrationEventConsumerTest.php'`
+- Result: OK (15 tests, 154 assertions), including stale logging and real broker retry/dead-letter behaviour.
+- Command: `docker exec inventory-management-app-1 sh -lc 'cd /var/www/html && php vendor/bin/phpunit'`
+- Result: OK (574 tests, 1,854 assertions).
+- Command: targeted `php vendor/bin/ecs check` over the changed application, infrastructure, provider, bootstrap and test paths.
+- Result: no errors.
+- Command: `php vendor/bin/phpstan analyse --no-progress --memory-limit=1G`.
+- Result: no errors; the PHPStan baseline was not modified.
+- Command: `git diff --check`.
+- Result: no whitespace errors.
+- Environment: Docker app container with MySQL and RabbitMQ services.
+- Tests not executed and reasons: none.
+
+**Review Status**
+
+- `Verified` in Task004 means that the automated checks and acceptance criteria were verified on 2026-11-18 and the technical review was approved on 2026-11-19.
+- Delivery: committed as `feat(inbox): add observability and safe retention tooling` on `feature/stockflow-foundation`; not pushed.
+- No push or pull request was created for Phase 4.
+
+**Human Review**
+
+- Can I explain the change without assistance? Approved during the technical review on 2026-11-19.
+- What would I change if I had more time? Add dashboard metrics for Inbox growth, retry volume, stale volume and dead-letter volume once a monitoring backend is approved.
+- What technical debt remains? No Inbox retention duration is approved, so tables accumulate until an operator decides a window. Strict ordering with multiple workers still requires context-owned per-aggregate serialization. OD-002 remains open.
+
 ### 2026-11-11 — Task 003: Transactional Outbox and Integration Infrastructure
 
 **Objective**

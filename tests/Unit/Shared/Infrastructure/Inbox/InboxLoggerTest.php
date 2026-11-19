@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\Shared\Infrastructure\Inbox;
 
 use Manager\Shared\Infrastructure\Inbox\InboxLogger;
+use Manager\Shared\Infrastructure\Outbox\OutboxErrorSanitizer;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Tests\Shared\Infrastructure\IntegrationEvent\IntegrationEventFixture;
@@ -21,7 +22,7 @@ final class InboxLoggerTest extends UnitTestCase
 		parent::setUp();
 
 		$this->collectingLogger = new CollectingLogger();
-		$this->logger = new InboxLogger($this->collectingLogger);
+		$this->logger = new InboxLogger($this->collectingLogger, new OutboxErrorSanitizer());
 	}
 
 	#[Test]
@@ -31,34 +32,53 @@ final class InboxLoggerTest extends UnitTestCase
 			'payload' => ['secret' => 'super-secret-payload-value'],
 		]);
 
-		$this->logger->recordProcessed($event, 'inventory.stock_projection');
+		$this->logger->recordProcessed($event, 'inventory.stock_projection', 0.125);
 
 		$records = $this->collectingLogger->records();
 
 		$this->assertCount(1, $records);
 		$this->assertSame('inbox.event.processed', $records[0]['message']);
+		$this->assertSame('info', $records[0]['level']);
 		$this->assertSame('super-secret-payload-value', $event->payload['secret']);
 		$this->assertArrayNotHasKey('payload', $records[0]['context']);
 		$this->assertStringNotContainsString('super-secret-payload-value', $this->collectingLogger->json());
 		$this->assertSame(IntegrationEventFixture::EVENT_ID, $records[0]['context']['event_id']);
 		$this->assertSame('inventory.stock_projection', $records[0]['context']['consumer']);
+		$this->assertSame('processed', $records[0]['context']['outcome']);
+		$this->assertSame(125.0, $records[0]['context']['latency_ms']);
 	}
 
 	#[Test]
-	public function it_should_log_the_error_class_without_the_error_message(): void
+	public function it_should_log_stale_events_with_their_own_outcome(): void
+	{
+		$this->logger->recordStale(IntegrationEventFixture::envelope(), 'inventory.stock_projection', 0.05);
+
+		$records = $this->collectingLogger->records();
+
+		$this->assertSame('inbox.event.stale', $records[0]['message']);
+		$this->assertSame('warning', $records[0]['level']);
+		$this->assertSame('stale', $records[0]['context']['outcome']);
+		$this->assertSame(50.0, $records[0]['context']['latency_ms']);
+	}
+
+	#[Test]
+	public function it_should_sanitize_error_messages_and_keep_them_on_one_line(): void
 	{
 		$this->logger->recordRetry(
 			IntegrationEventFixture::envelope(),
+			'inventory.stock_projection',
 			'manager.integration.inventory.stock_projection',
 			1,
-			new RuntimeException('sensitive failure details')
+			new RuntimeException("sensitive failure password=super-secret-value\nsecond line")
 		);
 
 		$records = $this->collectingLogger->records();
 
 		$this->assertSame(RuntimeException::class, $records[0]['context']['error_class']);
-		$this->assertArrayNotHasKey('error_message', $records[0]['context']);
-		$this->assertStringNotContainsString('sensitive failure details', $this->collectingLogger->json());
+		$this->assertStringContainsString('[REDACTED]', $records[0]['context']['error_message']);
+		$this->assertStringNotContainsString('super-secret-value', $this->collectingLogger->json());
+		$this->assertStringNotContainsString("\n", (string) $records[0]['context']['error_message']);
+		$this->assertSame('inventory.stock_projection', $records[0]['context']['consumer']);
 	}
 
 	#[Test]
@@ -66,24 +86,28 @@ final class InboxLoggerTest extends UnitTestCase
 	{
 		$this->logger->recordMalformed(
 			'manager.integration.inventory.stock_projection',
-			new RuntimeException('raw payload: secret')
+			new RuntimeException('raw payload: password=super-secret-value'),
+			'inventory.stock_projection'
 		);
 
 		$records = $this->collectingLogger->records();
 
 		$this->assertSame('inbox.event.malformed', $records[0]['message']);
-		$this->assertStringNotContainsString('raw payload: secret', $this->collectingLogger->json());
+		$this->assertSame('inventory.stock_projection', $records[0]['context']['consumer']);
+		$this->assertStringContainsString('[REDACTED]', $records[0]['context']['error_message']);
+		$this->assertStringNotContainsString('super-secret-value', $this->collectingLogger->json());
 	}
 
 	#[Test]
 	public function it_should_not_log_when_disabled(): void
 	{
-		$logger = new InboxLogger($this->collectingLogger, false);
+		$logger = new InboxLogger($this->collectingLogger, new OutboxErrorSanitizer(), false);
 
 		$logger->recordProcessed(IntegrationEventFixture::envelope(), 'inventory.stock_projection');
 		$logger->recordDuplicate(IntegrationEventFixture::envelope(), 'inventory.stock_projection');
-		$logger->recordRetry(null, 'queue', 1, new RuntimeException('error'));
-		$logger->recordDeadLetter(null, 'queue', new RuntimeException('error'));
+		$logger->recordStale(IntegrationEventFixture::envelope(), 'inventory.stock_projection');
+		$logger->recordRetry(null, 'inventory.stock_projection', 'queue', 1, new RuntimeException('error'));
+		$logger->recordDeadLetter(null, 'inventory.stock_projection', 'queue', new RuntimeException('error'));
 		$logger->recordMalformed('queue', new RuntimeException('error'));
 
 		$this->assertSame([], $this->collectingLogger->records());

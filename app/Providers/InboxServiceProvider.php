@@ -9,6 +9,7 @@ use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\ServiceProvider;
 use Manager\Shared\Application\Inbox\InboxConsumerValidator;
 use Manager\Shared\Application\Inbox\InboxExchangeValidator;
+use Manager\Shared\Application\Inbox\InboxMaintenanceStore;
 use Manager\Shared\Application\Inbox\InboxProcessor;
 use Manager\Shared\Application\Inbox\InboxStoreFactory;
 use Manager\Shared\Application\Transaction\TransactionalSession;
@@ -24,7 +25,10 @@ use Manager\Shared\Infrastructure\Console\IntegrationEvent\ConfigureIntegrationR
 use Manager\Shared\Infrastructure\Database\MySqlTransactionalSession;
 use Manager\Shared\Infrastructure\Inbox\InboxConnectionFactory;
 use Manager\Shared\Infrastructure\Inbox\InboxLogger;
+use Manager\Shared\Infrastructure\Inbox\MySqlInboxMaintenance;
 use Manager\Shared\Infrastructure\Inbox\MySqlInboxStoreFactory;
+use Manager\Shared\Infrastructure\Logging\ErrorSanitizer;
+use Manager\Shared\Infrastructure\Outbox\OutboxErrorSanitizer;
 use Psr\Log\LoggerInterface;
 
 final class InboxServiceProvider extends ServiceProvider
@@ -61,6 +65,19 @@ final class InboxServiceProvider extends ServiceProvider
 			return new MySqlInboxStoreFactory($app->make(InboxConnectionFactory::class)->connection(), $this->contexts());
 		});
 
+		$this->app->bind(
+			InboxMaintenanceStore::class,
+			fn (Application $app): InboxMaintenanceStore => new MySqlInboxMaintenance(
+				$app->make(InboxConnectionFactory::class)->connection(),
+				$this->contexts()
+			)
+		);
+
+		$this->app->singleton(
+			ErrorSanitizer::class,
+			static fn (Application $app): ErrorSanitizer => $app->make(OutboxErrorSanitizer::class)
+		);
+
 		$this->app->bind(InboxProcessor::class, static function (Application $app): InboxProcessor {
 			return new InboxProcessor(
 				$app->make(TransactionalSession::class),
@@ -88,7 +105,7 @@ final class InboxServiceProvider extends ServiceProvider
 				$enabled = is_bool($parsed) ? $parsed : true;
 			}
 
-			return new InboxLogger($app->make(LoggerInterface::class), $enabled);
+			return new InboxLogger($app->make(LoggerInterface::class), $app->make(ErrorSanitizer::class), $enabled);
 		});
 
 		$this->app->singleton(

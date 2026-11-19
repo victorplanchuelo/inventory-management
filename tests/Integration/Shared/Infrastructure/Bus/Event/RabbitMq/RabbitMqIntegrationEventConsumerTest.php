@@ -34,6 +34,7 @@ use Manager\Shared\Infrastructure\Database\MySqlTransactionalSession;
 use Manager\Shared\Infrastructure\Inbox\InboxLogger;
 use Manager\Shared\Infrastructure\Inbox\MySqlInboxStore;
 use Manager\Shared\Infrastructure\Inbox\MySqlInboxStoreFactory;
+use Manager\Shared\Infrastructure\Outbox\OutboxErrorSanitizer;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Tests\Shared\Infrastructure\Inbox\EphemeralInboxTable;
@@ -437,6 +438,7 @@ final class RabbitMqIntegrationEventConsumerTest extends InfrastructureTestCase
 		$this->assertNotNull($row);
 		$this->assertNotNull($row->processed_at);
 		$this->assertSame(InboxOutcome::STALE->value, $row->outcome);
+		$this->assertContains('inbox.event.stale', array_column($this->logger->records(), 'message'));
 		$this->assertNotContains('inbox.event.processed', array_column($this->logger->records(), 'message'));
 		$this->assertNotContains('inbox.event.duplicate', array_column($this->logger->records(), 'message'));
 	}
@@ -552,7 +554,7 @@ final class RabbitMqIntegrationEventConsumerTest extends InfrastructureTestCase
 			$this->rabbitMqConnection,
 			new IntegrationEventEnvelopeDeserializer(),
 			$this->processor(),
-			new InboxLogger($this->logger),
+			new InboxLogger($this->logger, new OutboxErrorSanitizer()),
 			$failurePublisher ?? $this->failurePublisher,
 			$this->exchangeName,
 			5
