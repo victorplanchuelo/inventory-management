@@ -6,5 +6,5 @@ namespace Manager\Shared\Application\Transaction;
 
 interface TransactionalSession
 {
-	public function execute(callable $operation): mixed;
+	public function execute(callable $operation, int $attempts = 1): mixed;
 }

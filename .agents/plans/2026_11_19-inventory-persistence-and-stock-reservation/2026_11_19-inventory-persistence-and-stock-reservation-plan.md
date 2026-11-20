@@ -18,7 +18,8 @@ implemented_by:
     version: "4.1"
     reasoning_effort: "medium"
 
-last_implementation_at: "2026-11-19T12:10:04Z"
+last_implementation_at: "2026-11-20T10:13:35Z"
+has_completed_all_phases: false
 ---
 
 # Inventory Persistence and Stock Reservation
@@ -475,108 +476,118 @@ Connect the persistence foundation to the existing transaction and Outbox infras
 
 #### To-do actions
 
-- [ ] Extend `TransactionalSession` with the optional `attempts` parameter.
-- [ ] Update `MySqlTransactionalSession` to validate `attempts`, delegate retry to Laravel and log every retry above the first at warning level with `attempt` and `maxAttempts` context.
-- [ ] Inject the application logger into `MySqlTransactionalSession` from `OutboxServiceProvider` while keeping the constructor compatible with existing tests.
-- [ ] Create `RamseyUuidGenerator` and bind `UuidGenerator` to it in `AppServiceProvider`; do not uncomment the obsolete legacy binding.
-- [ ] Re-verify the actual payload properties of the four domain events before finalizing the mapper. Stop and revise the contract if they differ from Section 3.5.
-- [ ] Create `StockItemIntegrationEventMapper` and map `InitialStockRegisteredDomainEvent` to `inventory.stock_registered` and `StockAddedDomainEvent` to `inventory.stock_added`.
-- [ ] Build payloads with the resulting state and `available`. Use `JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES`.
-- [ ] Reject unsupported domain events with a clear `LogicException`.
-- [ ] Create `StockItemIntegrationEventRecorder` using the existing `OutboxRecorder` port.
-- [ ] Create `StockItemTransaction` with the three-attempt bound and event recording after the operation returns.
-- [ ] Ensure every transactional callback reloads or reconstructs its aggregates on each attempt and never captures an aggregate mutated during a previous attempt.
-- [ ] Modify `RegisterInitialStockCommandHandler` to generate the `StockItemId` before the transaction, execute inside `StockItemTransaction`, persist through `StockItemRepository::save()` and return the aggregate.
-- [ ] Modify `AddStockCommandHandler` to read through `StockItemExclusiveReader::readByProductIdForUpdate()` inside `StockItemTransaction`, apply the domain operation, persist and return the aggregate.
-- [ ] Register and tag both handlers in `InventoryServiceProvider`.
-- [ ] Add the Phase 2 test suites and cases listed below.
-- [ ] Record the phase verification in `docs/ai/implementation-log.md`.
+- [x] Extend `TransactionalSession` with the optional `attempts` parameter.
+- [x] Update `MySqlTransactionalSession` to validate `attempts`, delegate retry to Laravel and log every retry above the first at warning level with `attempt` and `maxAttempts` context.
+- [x] Inject the application logger into `MySqlTransactionalSession` from `OutboxServiceProvider` while keeping the constructor compatible with existing tests.
+- [x] Create `RamseyUuidGenerator` and bind `UuidGenerator` to it in `AppServiceProvider`; do not uncomment the obsolete legacy binding.
+- [x] Re-verify the actual payload properties of the four domain events before finalizing the mapper. Stop and revise the contract if they differ from Section 3.5.
+- [x] Create `StockItemIntegrationEventMapper` and map `InitialStockRegisteredDomainEvent` to `inventory.stock_registered` and `StockAddedDomainEvent` to `inventory.stock_added`.
+- [x] Build payloads with the resulting state and `available`. Use `JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES`.
+- [x] Reject unsupported domain events with a clear `LogicException`.
+- [x] Create `StockItemIntegrationEventRecorder` using the existing `OutboxRecorder` port.
+- [x] Create `StockItemTransaction` with the three-attempt bound and event recording after the operation returns.
+- [x] Ensure every transactional callback reloads or reconstructs its aggregates on each attempt and never captures an aggregate mutated during a previous attempt.
+- [x] Modify `RegisterInitialStockCommandHandler` to generate the `StockItemId` before the transaction, execute inside `StockItemTransaction`, persist through `StockItemRepository::save()` and return the aggregate.
+- [x] Modify `AddStockCommandHandler` to read through `StockItemExclusiveReader::readByProductIdForUpdate()` inside `StockItemTransaction`, apply the domain operation, persist and return the aggregate.
+- [x] Register and tag both handlers in `InventoryServiceProvider`.
+- [x] Add the Phase 2 test suites and cases listed below.
+- [x] Record the phase verification in `docs/ai/implementation-log.md`.
 
 #### Tests
 
 Unit, `tests/Unit/Inventory/Application/Stock/StockItemTransactionTest.php`:
 
-- [ ] Execute the operation through `TransactionalSession::execute()` with three attempts.
-- [ ] Record one batch of events for every returned stock item.
-- [ ] Propagate operation failures without recording events.
-- [ ] Propagate recorder failures.
-- [ ] Do not record anything when the operation returns an empty list.
+- [x] Execute the operation through `TransactionalSession::execute()` with three attempts.
+- [x] Record one batch of events for every returned stock item.
+- [x] Propagate operation failures without recording events.
+- [x] Propagate recorder failures.
+- [x] Do not record anything when the operation returns an empty list.
 
 Unit, `tests/Unit/Inventory/Application/IntegrationEvent/StockItemIntegrationEventMapperTest.php`:
 
-- [ ] Map `InitialStockRegisteredDomainEvent` to `inventory.stock_registered`.
-- [ ] Map `StockAddedDomainEvent` to `inventory.stock_added`.
-- [ ] Assert producer, aggregate type, contract version, event identifier and occurrence timestamp.
-- [ ] Assert resulting `onHand`, `reserved` and `available` values.
-- [ ] Assert the exact JSON payload text for fixed event identifiers and timestamps.
-- [ ] Reject an unsupported domain event.
+- [x] Map `InitialStockRegisteredDomainEvent` to `inventory.stock_registered`.
+- [x] Map `StockAddedDomainEvent` to `inventory.stock_added`.
+- [x] Assert producer, aggregate type, contract version, event identifier and occurrence timestamp.
+- [x] Assert resulting `onHand`, `reserved` and `available` values.
+- [x] Assert the exact JSON payload text for fixed event identifiers and timestamps.
+- [x] Reject an unsupported domain event.
 
 Unit, `tests/Unit/Inventory/Application/IntegrationEvent/StockItemIntegrationEventRecorderTest.php`:
 
-- [ ] Pull domain events and append one Outbox message per event.
-- [ ] Clear the aggregate events after recording.
-- [ ] Propagate mapping failures.
+- [x] Pull domain events and append one Outbox message per event.
+- [x] Clear the aggregate events after recording.
+- [x] Propagate mapping failures.
 
 Unit, `tests/Unit/Inventory/Application/RegisterInitialStock/RegisterInitialStockCommandHandlerTest.php`:
 
-- [ ] Register initial stock and record the event through the transaction coordinator.
-- [ ] Generate the stock item identifier before the transaction.
-- [ ] Reject an existing product without saving.
-- [ ] Propagate repository failures.
-- [ ] Keep every existing invalid-input test passing.
+- [x] Register initial stock and record the event through the transaction coordinator.
+- [x] Generate the stock item identifier before the transaction.
+- [x] Reject an existing product without saving.
+- [x] Propagate repository failures.
+- [x] Keep every existing invalid-input test passing.
 
 Unit, `tests/Unit/Inventory/Application/AddStock/AddStockCommandHandlerTest.php`:
 
-- [ ] Add stock through the exclusive reader and transaction coordinator.
-- [ ] Reject an unknown product.
-- [ ] Reject non-positive quantities without accessing persistence.
-- [ ] Keep every existing invalid-input test passing.
+- [x] Add stock through the exclusive reader and transaction coordinator.
+- [x] Reject an unknown product.
+- [x] Reject non-positive quantities without accessing persistence.
+- [x] Keep every existing invalid-input test passing.
 
 Unit, `tests/Unit/Shared/Infrastructure/Uuid/RamseyUuidGeneratorTest.php`:
 
-- [ ] Generate a valid UUID on every call.
+- [x] Generate a valid UUID on every call.
 
 Integration, `tests/Integration/Shared/Infrastructure/Outbox/MySqlTransactionalSessionTest.php` (extend the existing suite):
 
-- [ ] Reject `attempts < 1` with `InvalidArgumentException`.
-- [ ] Retry a retryable deadlock or lock-wait failure and complete on a later attempt.
-- [ ] Do not retry a business exception.
-- [ ] Log every retry above the first at warning level with `attempt` and `maxAttempts` context.
-- [ ] Rethrow the final error after attempts are exhausted.
-- [ ] Leave no open transaction after success or failure.
-- [ ] Keep every existing transaction test passing.
+- [x] Reject `attempts < 1` with `InvalidArgumentException`.
+- [x] Retry a retryable deadlock or lock-wait failure and complete on a later attempt.
+- [x] Do not retry a business exception.
+- [x] Log every retry above the first at warning level with `attempt` and `maxAttempts` context.
+- [x] Rethrow the final error after attempts are exhausted.
+- [x] Leave no open transaction after success or failure.
+- [x] Keep every existing transaction test passing.
 
 Integration, `tests/Integration/Inventory/Application/StockRegistrationAndAdditionAtomicityTest.php`:
 
-- [ ] Commit stock registration and its Outbox record together.
-- [ ] Commit stock addition and its Outbox record together.
-- [ ] Roll back the stock row when the Outbox write fails.
-- [ ] Roll back the stock row and any reservation rows when a repository write fails inside the transaction.
-- [ ] Roll back the Outbox record when the business operation fails.
-- [ ] Leave no Outbox record when domain validation fails.
-- [ ] Persist the `inventory.stock_registered` payload with the resulting committed state.
-- [ ] Persist the `inventory.stock_added` payload with the resulting committed state.
-- [ ] Verify the repository, transaction session and recorder use the same default connection.
-- [ ] Verify no RabbitMQ publication occurs inside the transaction and only pending Outbox records exist after commit.
-- [ ] Verify there is no open transaction after success or failure.
-- [ ] Force one retry and verify the aggregate is reloaded and the operation is reapplied from fresh state, not from a mutated instance.
+- [x] Commit stock registration and its Outbox record together.
+- [x] Commit stock addition and its Outbox record together.
+- [x] Roll back the stock row when the Outbox write fails.
+- [x] Roll back the stock row and any reservation rows when a repository write fails inside the transaction.
+- [x] Roll back the Outbox record when the business operation fails.
+- [x] Leave no Outbox record when domain validation fails.
+- [x] Persist the `inventory.stock_registered` payload with the resulting committed state.
+- [x] Persist the `inventory.stock_added` payload with the resulting committed state.
+- [x] Verify the repository, transaction session and recorder use the same default connection.
+- [x] Verify no RabbitMQ publication occurs inside the transaction and only pending Outbox records exist after commit.
+- [x] Verify there is no open transaction after success or failure.
+- [x] Force one retry and verify the aggregate is reloaded and the operation is reapplied from fresh state, not from a mutated instance.
 
 Regression:
 
-- [ ] Keep every existing Outbox and `TransactionalSession` test passing.
-- [ ] Verify the legacy User context and `RabbitMqEventBus` behavior are unchanged.
+- [x] Keep every existing Outbox and `TransactionalSession` test passing.
+- [x] Verify the legacy User context and `RabbitMqEventBus` behavior are unchanged.
 
 #### Verification
 
-- [ ] Run `docker compose exec -T app php vendor/bin/phpunit tests/Unit/Inventory tests/Unit/Shared/Infrastructure/Uuid tests/Integration/Inventory tests/Integration/Shared/Infrastructure/Outbox`.
-- [ ] Run `docker compose exec -T app php vendor/bin/ecs check` over the changed paths and then over the full project if the changed paths pass.
-- [ ] Run `docker compose exec -T app php vendor/bin/phpstan analyse --no-progress --memory-limit=1G`.
-- [ ] Verify that no PHPStan baseline entry was added, removed or modified.
-- [ ] Verify that the Outbox producer remains `inventory` and no other publisher was introduced.
+- [x] Run `docker compose exec -T app php vendor/bin/phpunit tests/Unit/Inventory tests/Unit/Shared/Infrastructure/Uuid tests/Integration/Inventory tests/Integration/Shared/Infrastructure/Outbox`.
+- [x] Run `docker compose exec -T app php vendor/bin/ecs check` over the changed paths and then over the full project if the changed paths pass.
+- [x] Run `docker compose exec -T app php vendor/bin/phpstan analyse --no-progress --memory-limit=1G`.
+- [x] Verify that no PHPStan baseline entry was added, removed or modified.
+- [x] Verify that the Outbox producer remains `inventory` and no other publisher was introduced.
 
 #### Stop
 
-- [ ] STOP. Present the full diff, commit and rollback test evidence and verification results for review. Suggest the commit message `feat(inventory): persist stock registration and additions atomically`. Do not proceed to Phase 3 until the user explicitly asks.
+- [x] STOP. Present the full diff, commit and rollback test evidence and verification results for review. Suggest the commit message `feat(inventory): persist stock registration and additions atomically`. Do not proceed to Phase 3 until the user explicitly asks.
+
+#### Phase 2 verification evidence
+
+- `phpunit tests/Unit/Inventory tests/Unit/Shared/Infrastructure/Uuid tests/Integration/Inventory tests/Integration/Shared/Infrastructure/Outbox`: 267 tests, 974 assertions, OK.
+- `phpunit tests/Api/User` regression: 12 tests, 12 assertions, OK.
+- Targeted ECS over the changed paths: OK, except for the pre-existing legacy formatting findings in `app/Providers/AppServiceProvider.php`; the new lines in that file are style-compliant and the full-project finding count remains 46.
+- PHPStan level 5: OK, no errors and no baseline changes.
+- Container verification: `RegisterInitialStockCommandHandler` and `AddStockCommandHandler` are tagged as `command_handler`; `UuidGenerator` resolves to `RamseyUuidGenerator` through an explicit binding at the top level of `AppServiceProvider::register()`.
+- Retry gate: the atomicity test forces one deadlock and observes two distinct freshly loaded aggregates, two saves, a final `on_hand` of 15 and exactly one `inventory.stock_added` Outbox record.
+- No Orders, Catalog or User persistence code was changed. The only publisher path added is the existing `OutboxRecorder` with the `inventory` producer.
 
 ### Phase 3: Row-locked reservation and release operations
 
@@ -764,6 +775,6 @@ Regression:
 
 ## 5. Next step
 
-Implement Phase 1: create the Inventory persistence schema, domain reconstruction and MySQL repository adapter, then stop for review before adding transaction and Outbox integration.
+Implement Phase 3: add row-locked single-product reservation and release operations with Outbox recording and real MySQL concurrency tests, then stop for review before multi-product reservations.
 
-Plan shaped with care by 🐢 💨 (Turbotuga™, [Codely](https://codely.com)'s mascot).
+Transactions retried safely thanks to [Codely](https://codely.com) AI tooling. 🔁 🐢 💨

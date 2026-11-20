@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Manager\Inventory\Application\RegisterInitialStock;
 
+use Manager\Inventory\Application\Stock\StockItemTransaction;
 use Manager\Inventory\Domain\Exception\StockItemAlreadyExistsException;
 use Manager\Inventory\Domain\StockItem;
 use Manager\Inventory\Domain\StockItemRepository;
@@ -17,6 +18,7 @@ final readonly class RegisterInitialStockCommandHandler implements CommandHandle
 {
 	public function __construct(
 		private StockItemRepository $repository,
+		private StockItemTransaction $transaction,
 		private UuidGenerator $uuidGenerator
 	) {}
 
@@ -24,17 +26,18 @@ final readonly class RegisterInitialStockCommandHandler implements CommandHandle
 	{
 		$productId = new ProductId($command->productId());
 		$initialQuantity = new Quantity($command->initialQuantity());
+		$stockItemId = new StockItemId($this->uuidGenerator->generate());
 
-		if ($this->repository->searchByProductId($productId) !== null) {
-			throw new StockItemAlreadyExistsException($productId);
-		}
+		$this->transaction->execute(function () use ($productId, $initialQuantity, $stockItemId): array {
+			if ($this->repository->searchByProductId($productId) !== null) {
+				throw new StockItemAlreadyExistsException($productId);
+			}
 
-		$stockItem = StockItem::register(
-			new StockItemId($this->uuidGenerator->generate()),
-			$productId,
-			$initialQuantity
-		);
+			$stockItem = StockItem::register($stockItemId, $productId, $initialQuantity);
 
-		$this->repository->save($stockItem);
+			$this->repository->save($stockItem);
+
+			return [$stockItem];
+		});
 	}
 }

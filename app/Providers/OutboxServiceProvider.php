@@ -39,7 +39,10 @@ final class OutboxServiceProvider extends ServiceProvider
 		});
 
 		$this->app->bind(TransactionalSession::class, static function (Application $app): TransactionalSession {
-			return new MySqlTransactionalSession($app->make(OutboxConnectionFactory::class)->connection());
+			return new MySqlTransactionalSession(
+				$app->make(OutboxConnectionFactory::class)->connection(),
+				$app->make(LoggerInterface::class)
+			);
 		});
 
 		$this->app->bind(OutboxRecorder::class, static function (Application $app): OutboxRecorder {

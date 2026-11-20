@@ -10,6 +10,7 @@ use Illuminate\Database\Connection;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use Manager\Shared\Application\Outbox\OutboxMessage;
 use Manager\Shared\Application\Outbox\OutboxRecorder;
 use Manager\Shared\Application\Transaction\TransactionalSession;
@@ -18,9 +19,11 @@ use Manager\Shared\Infrastructure\Database\MySqlTransactionalSession;
 use Manager\Shared\Infrastructure\Outbox\MySqlOutboxRecorder;
 use Manager\Shared\Infrastructure\Outbox\OutboxConnectionFactory;
 use Manager\Shared\Infrastructure\Outbox\OutboxProducerValidator;
+use PDOException;
 use PHPUnit\Framework\Attributes\Test;
 use ReflectionProperty;
 use RuntimeException;
+use Tests\Shared\Infrastructure\PhpUnit\CollectingLogger;
 use Tests\Shared\Infrastructure\PhpUnit\InfrastructureTestCase;
 
 final class MySqlTransactionalSessionTest extends InfrastructureTestCase
@@ -190,6 +193,113 @@ final class MySqlTransactionalSessionTest extends InfrastructureTestCase
 		$this->assertSame(1, $this->connection->table('outbox')->where('event_id', $message->eventId())->count());
 	}
 
+	#[Test]
+	public function it_should_reject_a_non_positive_attempt_count(): void
+	{
+		foreach ([0, -1] as $attempts) {
+			try {
+				$this->session->execute(static fn (): mixed => null, $attempts);
+				self::fail('An InvalidArgumentException was expected for a non-positive attempt count.');
+			} catch (InvalidArgumentException $exception) {
+				self::assertStringContainsString('at least one', $exception->getMessage());
+			}
+		}
+
+		self::assertSame(0, $this->connection->transactionLevel());
+	}
+
+	#[Test]
+	public function it_should_retry_a_concurrency_failure_and_complete_on_a_later_attempt(): void
+	{
+		$invocations = 0;
+
+		$result = $this->session->execute(function () use (&$invocations): string {
+			$invocations++;
+			$this->insertBusinessRow('attempt-' . $invocations);
+
+			if ($invocations === 1) {
+				throw $this->concurrencyException();
+			}
+
+			return 'completed';
+		}, 3);
+
+		self::assertSame('completed', $result);
+		self::assertSame(2, $invocations);
+		self::assertSame(1, $this->businessRows()->count());
+		self::assertSame('attempt-2', (string) $this->businessRows()->value('note'));
+		self::assertSame(0, $this->connection->transactionLevel());
+	}
+
+	#[Test]
+	public function it_should_not_retry_a_business_exception(): void
+	{
+		$invocations = 0;
+
+		try {
+			$this->session->execute(function () use (&$invocations): void {
+				$invocations++;
+
+				throw new RuntimeException('business failure');
+			}, 3);
+
+			self::fail('The business exception was expected to propagate.');
+		} catch (RuntimeException $exception) {
+			self::assertSame('business failure', $exception->getMessage());
+		}
+
+		self::assertSame(1, $invocations);
+		self::assertSame(0, $this->connection->transactionLevel());
+	}
+
+	#[Test]
+	public function it_should_log_every_retry_above_the_first_with_attempt_context(): void
+	{
+		$logger = new CollectingLogger();
+		$session = new MySqlTransactionalSession($this->connection, $logger);
+		$invocations = 0;
+
+		$session->execute(function () use (&$invocations): void {
+			$invocations++;
+
+			if ($invocations < 3) {
+				throw $this->concurrencyException();
+			}
+		}, 3);
+
+		$records = $logger->records();
+
+		self::assertCount(2, $records);
+		self::assertSame('warning', $records[0]['level']);
+		self::assertSame(2, $records[0]['context']['attempt']);
+		self::assertSame(3, $records[0]['context']['maxAttempts']);
+		self::assertSame('warning', $records[1]['level']);
+		self::assertSame(3, $records[1]['context']['attempt']);
+		self::assertSame(3, $records[1]['context']['maxAttempts']);
+	}
+
+	#[Test]
+	public function it_should_rethrow_the_final_error_after_exhausting_the_attempts(): void
+	{
+		$invocations = 0;
+		$caught = null;
+
+		try {
+			$this->session->execute(function () use (&$invocations): void {
+				$invocations++;
+
+				throw $this->concurrencyException();
+			}, 3);
+		} catch (QueryException $exception) {
+			$caught = $exception;
+		}
+
+		self::assertNotNull($caught);
+		self::assertStringContainsString('Deadlock found', $caught->getMessage());
+		self::assertSame(3, $invocations);
+		self::assertSame(0, $this->connection->transactionLevel());
+	}
+
 	private function connectionOf(object $adapter): Connection
 	{
 		$property = new ReflectionProperty($adapter, 'connection');
@@ -206,6 +316,16 @@ final class MySqlTransactionalSessionTest extends InfrastructureTestCase
 			'id' => self::BUSINESS_ID,
 			'note' => $note,
 		]);
+	}
+
+	private function concurrencyException(): QueryException
+	{
+		return new QueryException(
+			$this->connection->getName(),
+			'select 1',
+			[],
+			new PDOException('Deadlock found when trying to get lock; try restarting transaction')
+		);
 	}
 
 	private function businessRows(): Builder

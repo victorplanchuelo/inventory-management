@@ -9,6 +9,7 @@ use Illuminate\Support\ServiceProvider;
 use Manager\Shared\Domain\Bus\Command\CommandBus;
 use Manager\Shared\Domain\Bus\Event\EventBus;
 use Manager\Shared\Domain\Bus\Query\QueryBus;
+use Manager\Shared\Domain\UuidGenerator;
 use Manager\Shared\Infrastructure\Bus\Command\InMemorySymfonyCommandBus;
 use Manager\Shared\Infrastructure\Bus\Event\DomainEventJsonDeserializer;
 use Manager\Shared\Infrastructure\Bus\Event\DomainEventMapping;
@@ -22,6 +23,7 @@ use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\RabbitMqDomainEventsConsume
 use Manager\Shared\Infrastructure\Bus\Event\RabbitMq\RabbitMqEventBus;
 use Manager\Shared\Infrastructure\Bus\Query\InMemorySymfonyQueryBus;
 use Manager\Shared\Infrastructure\Database\DatabaseConnections;
+use Manager\Shared\Infrastructure\Uuid\RamseyUuidGenerator;
 
 final class AppServiceProvider extends ServiceProvider
 {
@@ -30,6 +32,8 @@ final class AppServiceProvider extends ServiceProvider
 	 */
 	public function register(): void
 	{
+		$this->app->bind(UuidGenerator::class, RamseyUuidGenerator::class);
+
         $this->app->singleton(DatabaseConnections::class, function ($app) {
             return new DatabaseConnections(
                 config('database.connections')

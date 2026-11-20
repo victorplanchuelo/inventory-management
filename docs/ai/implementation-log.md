@@ -50,6 +50,53 @@ Use one entry per task. Keep the log brief and factual.
 
 ## Log
 
+### 2026-11-20 — Task 006 Phase 2: Atomic Stock Registration and Addition with Outbox
+
+**Objective**
+
+- Connect the Inventory persistence foundation to the shared transaction and Outbox infrastructure.
+- Deliver atomic `RegisterInitialStock` and `AddStock` operations with bounded retry, integration-event mapping and production UUID generation.
+
+**Research**
+
+- Files inspected: `TransactionalSession`, `MySqlTransactionalSession`, `OutboxMessage`, `OutboxRecorder`, `MySqlOutboxRecorder`, `OutboxConnectionFactory`, the Inventory command handlers, the four Inventory domain events, `InventoryServiceProvider`, `AppServiceProvider`, `OutboxServiceProvider`, command-handler tagging and the existing transaction/Outbox tests.
+- Verified facts: all four domain events expose the resulting state required by the approved contract; Laravel retries only concurrency failures; both Inbox and Outbox providers bind `TransactionalSession`, with `OutboxServiceProvider` registered last; MySQL deadlock and lock-wait messages are recognised by Laravel; `ramsey/uuid` is already installed.
+- Hypotheses/risks: Outbox recording must happen inside the transaction; retries must reload aggregates from persistence; generated identities must be created before the transaction starts.
+
+**Approved Plan**
+
+- Files created/modified: `TransactionalSession`, `MySqlTransactionalSession`, `RamseyUuidGenerator`, `StockItemIntegrationEventMapper`, `StockItemIntegrationEventRecorder`, `StockItemTransaction`, both Phase 2 command handlers, `InventoryServiceProvider`, `AppServiceProvider`, `OutboxServiceProvider` and the Phase 2 test suites.
+- Design: the shared transaction contract accepts bounded attempts and logs every retry above the first; `StockItemTransaction` records the pending events of every returned aggregate inside the transaction; registration generates its identifier before the transaction; addition reloads its aggregate through `StockItemExclusiveReader` on every attempt.
+- Planned tests: transaction retry and logging, UUID generation, integration-event mapping and recording, both handlers, atomic commit and rollback, connection identity and a forced-retry fresh-reload test.
+- Acceptance criteria: `docs/tasks/006-inventory-persistence-and-stock-reservation.md`, Phase 2.
+
+**Implementation**
+
+- Changes made: extended the shared transaction contract and MySQL adapter; bound `UuidGenerator` to `RamseyUuidGenerator` at the top level of `AppServiceProvider::register()`; added the Inventory integration-event mapper and recorder; added `StockItemTransaction`; moved registration and addition into the transaction boundary; tagged both handlers as `command_handler`.
+- Decisions taken: event mapping uses the resulting committed state and derives `available`; unsupported domain events fail with `LogicException`; the Outbox `event_id` and `occurred_at` come from the domain event; correlation and causation are omitted; non-positive stock additions fail before persistence; retries reload aggregates and never reuse mutated instances.
+- Discarded changes and reasons: no second publisher, no generic Unit of Work, no event recording outside the transaction and no RabbitMQ I/O inside the transaction.
+
+**Verification**
+
+- Command: `docker compose exec -T app php vendor/bin/phpunit tests/Unit/Inventory tests/Unit/Shared/Infrastructure/Uuid tests/Integration/Inventory tests/Integration/Shared/Infrastructure/Outbox`
+- Result: 267 tests, 974 assertions, OK.
+- Command: `docker compose exec -T app php vendor/bin/phpunit tests/Api/User`
+- Result: 12 tests, 12 assertions, OK; the legacy User context and `RabbitMqEventBus` wiring remain unchanged.
+- Command: targeted `php vendor/bin/ecs check` over the changed paths.
+- Result: OK. Full-project ECS still reports the same 46 pre-existing legacy findings, including legacy formatting in `app/Providers/AppServiceProvider.php`; no new finding was introduced.
+- Command: `php vendor/bin/phpstan analyse --no-progress --memory-limit=1G`
+- Result: no errors; `phpstan-baseline.neon` unchanged.
+- Command: container inspection of tagged command handlers and the `UuidGenerator` binding.
+- Result: both Inventory handlers are tagged and `UuidGenerator` resolves to `RamseyUuidGenerator`.
+- Retry evidence: the atomicity test forces one deadlock, observes two distinct freshly loaded aggregates and two saves, and persists a single `on_hand = 15` with exactly one `inventory.stock_added` Outbox record.
+- Constraints verified: no Orders, Catalog or User persistence was changed; the existing `OutboxRecorder` remains the only publisher path and the producer is `inventory`.
+
+**Human Review**
+
+- Can I explain the change without assistance? Pending human review.
+- What would I change if I had more time? Extract a reusable transaction-test harness for the remaining Inventory phases.
+- What technical debt remains: row-locked reservation and release operations, multi-product reservations and the public integration-event documentation remain for Phases 3–4.
+
 ### 2026-11-19 — Task 006 Phase 1: MySQL Persistence Foundation for StockItem Aggregates
 
 **Objective**
