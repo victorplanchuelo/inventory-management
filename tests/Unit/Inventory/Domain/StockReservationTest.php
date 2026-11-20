@@ -99,4 +99,53 @@ final class StockReservationTest extends InventoryUnitTestCase
 
 		$released->release();
 	}
+
+	#[Test]
+	public function it_should_reconstitute_an_active_reservation(): void
+	{
+		$reservationId = ReservationIdMother::create();
+		$orderId = OrderIdMother::create();
+
+		$reservation = StockReservation::reconstitute(
+			$reservationId,
+			$orderId,
+			new Quantity(7),
+			StockReservationStatus::Active
+		);
+
+		self::assertSame($reservationId, $reservation->id());
+		self::assertSame($orderId, $reservation->orderId());
+		self::assertSame(7, $reservation->quantity()->value());
+		self::assertSame(StockReservationStatus::Active, $reservation->status());
+		self::assertTrue($reservation->isActive());
+		self::assertFalse($reservation->isReleased());
+	}
+
+	#[Test]
+	public function it_should_reconstitute_a_released_reservation(): void
+	{
+		$reservation = StockReservation::reconstitute(
+			ReservationIdMother::create(),
+			OrderIdMother::create(),
+			new Quantity(7),
+			StockReservationStatus::Released
+		);
+
+		self::assertSame(StockReservationStatus::Released, $reservation->status());
+		self::assertFalse($reservation->isActive());
+		self::assertTrue($reservation->isReleased());
+	}
+
+	#[Test]
+	public function it_should_reject_reconstruction_with_a_non_positive_quantity(): void
+	{
+		$this->expectException(QuantityMustBePositiveException::class);
+
+		StockReservation::reconstitute(
+			ReservationIdMother::create(),
+			OrderIdMother::create(),
+			new Quantity(0),
+			StockReservationStatus::Active
+		);
+	}
 }

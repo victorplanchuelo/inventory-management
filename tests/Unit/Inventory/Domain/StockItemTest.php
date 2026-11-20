@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Inventory\Domain;
 
+use InvalidArgumentException;
 use Manager\Inventory\Domain\Event\InitialStockRegisteredDomainEvent;
 use Manager\Inventory\Domain\Event\ReservationReleasedDomainEvent;
 use Manager\Inventory\Domain\Event\StockAddedDomainEvent;
@@ -14,8 +15,11 @@ use Manager\Inventory\Domain\Exception\ReservationAlreadyExistsException;
 use Manager\Inventory\Domain\Exception\ReservationAlreadyReleasedException;
 use Manager\Inventory\Domain\Exception\ReservationNotFoundException;
 use Manager\Inventory\Domain\StockItem;
+use Manager\Inventory\Domain\StockReservation;
 use Manager\Inventory\Domain\ValueObject\Quantity;
+use Manager\Inventory\Domain\ValueObject\StockReservationStatus;
 use PHPUnit\Framework\Attributes\Test;
+use stdClass;
 use Tests\Unit\Inventory\Domain\ObjectMother\OrderIdMother;
 use Tests\Unit\Inventory\Domain\ObjectMother\ProductIdMother;
 use Tests\Unit\Inventory\Domain\ObjectMother\QuantityMother;
@@ -499,5 +503,132 @@ final class StockItemTest extends InventoryUnitTestCase
 			],
 			$events[0]->toPrimitives()
 		);
+	}
+
+	#[Test]
+	public function it_should_reconstitute_a_stock_item_with_active_and_released_reservations(): void
+	{
+		$stockItemId = StockItemIdMother::create();
+		$productId = ProductIdMother::create();
+		$activeReservation = StockReservation::reconstitute(
+			ReservationIdMother::create(),
+			OrderIdMother::create(),
+			new Quantity(10),
+			StockReservationStatus::Active
+		);
+		$releasedReservation = StockReservation::reconstitute(
+			ReservationIdMother::create(),
+			OrderIdMother::create(),
+			new Quantity(5),
+			StockReservationStatus::Released
+		);
+
+		$stockItem = StockItem::reconstitute(
+			$stockItemId,
+			$productId,
+			new Quantity(30),
+			new Quantity(10),
+			[$activeReservation, $releasedReservation]
+		);
+
+		self::assertSame($stockItemId, $stockItem->id());
+		self::assertSame($productId, $stockItem->productId());
+		self::assertSame(30, $stockItem->onHand()->value());
+		self::assertSame(10, $stockItem->reserved()->value());
+		self::assertSame(20, $stockItem->available()->value());
+		self::assertCount(2, $stockItem->reservations());
+		self::assertTrue($stockItem->reservations()[0]->isActive());
+		self::assertTrue($stockItem->reservations()[1]->isReleased());
+	}
+
+	#[Test]
+	public function it_should_reject_reconstruction_when_reserved_exceeds_on_hand(): void
+	{
+		$this->expectException(InvalidArgumentException::class);
+
+		StockItem::reconstitute(
+			StockItemIdMother::create(),
+			ProductIdMother::create(),
+			new Quantity(5),
+			new Quantity(10),
+			[]
+		);
+	}
+
+	#[Test]
+	public function it_should_reject_reconstruction_when_reserved_does_not_equal_the_active_reservations_sum(): void
+	{
+		$activeReservation = StockReservation::reconstitute(
+			ReservationIdMother::create(),
+			OrderIdMother::create(),
+			new Quantity(5),
+			StockReservationStatus::Active
+		);
+
+		$this->expectException(InvalidArgumentException::class);
+
+		StockItem::reconstitute(
+			StockItemIdMother::create(),
+			ProductIdMother::create(),
+			new Quantity(30),
+			new Quantity(10),
+			[$activeReservation]
+		);
+	}
+
+	#[Test]
+	public function it_should_reject_reconstruction_with_duplicate_reservation_identifiers(): void
+	{
+		$reservationId = ReservationIdMother::create();
+		$firstReservation = StockReservation::reconstitute(
+			$reservationId,
+			OrderIdMother::create(),
+			new Quantity(5),
+			StockReservationStatus::Active
+		);
+		$secondReservation = StockReservation::reconstitute(
+			$reservationId,
+			OrderIdMother::create(),
+			new Quantity(5),
+			StockReservationStatus::Active
+		);
+
+		$this->expectException(InvalidArgumentException::class);
+
+		StockItem::reconstitute(
+			StockItemIdMother::create(),
+			ProductIdMother::create(),
+			new Quantity(10),
+			new Quantity(10),
+			[$firstReservation, $secondReservation]
+		);
+	}
+
+	#[Test]
+	public function it_should_reject_reconstruction_with_a_non_reservation_value(): void
+	{
+		$this->expectException(InvalidArgumentException::class);
+
+		StockItem::reconstitute(
+			StockItemIdMother::create(),
+			ProductIdMother::create(),
+			new Quantity(10),
+			new Quantity(0),
+			[new stdClass()]
+		);
+	}
+
+	#[Test]
+	public function it_should_not_record_domain_events_when_reconstituting(): void
+	{
+		$stockItem = StockItem::reconstitute(
+			StockItemIdMother::create(),
+			ProductIdMother::create(),
+			new Quantity(10),
+			new Quantity(0),
+			[]
+		);
+
+		self::assertSame([], $stockItem->pullDomainEvents());
 	}
 }

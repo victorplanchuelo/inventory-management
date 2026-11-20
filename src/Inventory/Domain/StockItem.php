@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Manager\Inventory\Domain;
 
+use InvalidArgumentException;
 use Manager\Inventory\Domain\Event\InitialStockRegisteredDomainEvent;
 use Manager\Inventory\Domain\Event\ReservationReleasedDomainEvent;
 use Manager\Inventory\Domain\Event\StockAddedDomainEvent;
@@ -30,7 +31,10 @@ final class StockItem extends AggregateRoot
 		private Quantity $onHand,
 		private Quantity $reserved,
 		private array $reservations = []
-	) {}
+	) {
+		$this->ensureReservedDoesNotExceedOnHand();
+		$this->ensureReservationsAreValid();
+	}
 
 	public static function register(StockItemId $id, ProductId $productId, Quantity $initialQuantity): self
 	{
@@ -43,6 +47,19 @@ final class StockItem extends AggregateRoot
 		$stockItem->record(new InitialStockRegisteredDomainEvent($id, $productId->value(), $initialQuantity->value()));
 
 		return $stockItem;
+	}
+
+	/**
+	 * @param list<StockReservation> $reservations
+	 */
+	public static function reconstitute(
+		StockItemId $id,
+		ProductId $productId,
+		Quantity $onHand,
+		Quantity $reserved,
+		array $reservations
+	): self {
+		return new self($id, $productId, $onHand, $reserved, $reservations);
 	}
 
 	public function id(): StockItemId
@@ -167,5 +184,56 @@ final class StockItem extends AggregateRoot
 		$this->reserved = $releasedCounter;
 
 		$this->record($releasedEvent);
+	}
+
+	private function ensureReservedDoesNotExceedOnHand(): void
+	{
+		if ($this->reserved->isBiggerThan($this->onHand)) {
+			throw new InvalidArgumentException(sprintf(
+				'The reserved quantity <%d> cannot exceed the on hand quantity <%d>.',
+				$this->reserved->value(),
+				$this->onHand->value()
+			));
+		}
+	}
+
+	private function ensureReservationsAreValid(): void
+	{
+		$reservationIds = [];
+		$activeReservationQuantity = 0;
+
+		foreach ($this->reservations as $reservation) {
+			if (!$this->isStockReservation($reservation)) {
+				throw new InvalidArgumentException('Every reservation must be a StockReservation instance.');
+			}
+
+			$reservationId = $reservation->id()->value();
+
+			if (isset($reservationIds[$reservationId])) {
+				throw new InvalidArgumentException(sprintf(
+					'Every reservation identifier must be unique inside the aggregate. Duplicated <%s>.',
+					$reservationId
+				));
+			}
+
+			$reservationIds[$reservationId] = true;
+
+			if ($reservation->isActive()) {
+				$activeReservationQuantity += $reservation->quantity()->value();
+			}
+		}
+
+		if ($activeReservationQuantity !== $this->reserved->value()) {
+			throw new InvalidArgumentException(sprintf(
+				'The reserved quantity <%d> must equal the sum of active reservation quantities <%d>.',
+				$this->reserved->value(),
+				$activeReservationQuantity
+			));
+		}
+	}
+
+	private function isStockReservation(mixed $reservation): bool
+	{
+		return $reservation instanceof StockReservation;
 	}
 }

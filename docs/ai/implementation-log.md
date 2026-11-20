@@ -50,6 +50,55 @@ Use one entry per task. Keep the log brief and factual.
 
 ## Log
 
+### 2026-11-19 — Task 006 Phase 1: MySQL Persistence Foundation for StockItem Aggregates
+
+**Objective**
+
+- Persist complete `StockItem` aggregates, including active and released reservations, in Inventory-owned MySQL tables.
+- Provide the domain reconstruction mechanism, Eloquent models, persistence mapper, repository adapter and transaction-bound exclusive-reader port required before transaction and Outbox integration.
+
+**Research**
+
+- Files inspected: `src/Inventory/Domain`, `src/Inventory/Application`, `src/Inventory/Domain/StockItemRepository.php`, `database/migrations/2026_11_10_000001_create_outbox_table.php`, `src/Shared/Infrastructure/Outbox`, `tests/Integration/Shared/Infrastructure/Outbox`, `tests/Integration/Shared/Application/Inbox/InboxProcessorDuplicateRaceTest.php`, `tests/Shared/Infrastructure/PhpUnit/InfrastructureTestCase.php`, `bootstrap/providers.php`, `ecs.php`, `phpstan.neon` and the approved Task006 plan.
+- Existing behavior: `StockItem` and `StockReservation` had private constructors and no persistence adapter. Inventory had no Infrastructure layer, migrations, provider or production bindings.
+- Reused contracts: `StockItemRepository`, `AggregateRoot`, `Uuid`, `Quantity`, `StockReservationStatus`, `OutboxConnectionFactory` and the existing MySQL test conventions.
+- Verified facts: the project runs MySQL 8.0.32, which enforces `CHECK` constraints; `DATETIME` avoids MySQL session-timezone conversions; the default connection is shared by existing Outbox infrastructure.
+- Hypotheses/risks: MySQL constraint names must be unique; reservation rows must not be deleted and reinserted because that would reset `created_at`; a retry must never reuse an aggregate mutated by a previous attempt (Phase 2 gate).
+
+**Approved Plan**
+
+- Files created/modified: two Inventory migrations, `StockItem::reconstitute()`, `StockReservation::reconstitute()`, Eloquent models, `StockItemPersistenceMapper`, `StockItemExclusiveReader`, `MySqlStockItemRepository`, `InventoryServiceProvider`, `bootstrap/providers.php`, Inventory integration test base and Phase 1 unit/integration tests.
+- Design: Inventory-owned schema with explicit `CHECK` constraints; reconstruction validates complete aggregate state without recording events; exclusive reads require an active transaction and lock the stock-item row before loading reservations; `save()` performs explicit update-or-insert per aggregate and per reservation, preserving `created_at`; every timestamp is converted to UTC before formatting.
+- Planned tests: domain reconstitution invariants, persistence round trips, reservation status preservation, duplicate product mapping, schema constraints, transaction guard, lock duration on a second connection and UTC conversion.
+- Acceptance criteria: `docs/tasks/006-inventory-persistence-and-stock-reservation.md`, Phase 1.
+
+**Implementation**
+
+- Changes made: created `inventory_stock_items` and `inventory_stock_reservations`; added domain reconstruction with reserved/on-hand reconciliation, unique reservation identifiers and supported statuses; created models, mapper, repository and exclusive reader; registered the provider and shared connection; added MySQL integration cleanup base and Phase 1 test coverage.
+- Decisions taken: private constructors validate the full state; exclusive-reader methods throw `LogicException` before querying when `transactionLevel() === 0`; locking reads resolve the stock-item row first and then load reservations with a locking read; duplicate `inventory_stock_items_product_id_unique` violations map to `StockItemAlreadyExistsException`; other unique violations are rethrown; released reservations are retained; timezone tests restore the original `@@session.time_zone`; contention tests accept only MySQL error 1205 as proof of lock waiting.
+- Discarded changes and reasons: no `ON DUPLICATE KEY UPDATE`, because a product-id conflict could overwrite the wrong aggregate; no delete-and-reinsert of reservations, because it would reset `created_at`; no command-handler, Outbox, retry or integration-event changes, because those belong to later phases.
+
+**Verification**
+
+- Command: `docker compose exec -T app php artisan migrate --env=testing --force`
+- Result: both Inventory migrations applied successfully.
+- Command: `docker compose exec -T app php vendor/bin/phpunit tests/Unit/Inventory tests/Integration/Inventory`
+- Result: 193 tests, 427 assertions, OK.
+- Command: `docker compose exec -T app php vendor/bin/phpunit tests/Integration/Shared/Infrastructure/Outbox`
+- Result: 46 tests, 405 assertions, OK.
+- Command: targeted `php vendor/bin/ecs check` over every changed path.
+- Result: OK. Full-project ECS still reports pre-existing legacy findings in untouched files.
+- Command: `php vendor/bin/phpstan analyse --no-progress --memory-limit=1G`
+- Result: no errors; `phpstan-baseline.neon` unchanged.
+- Environment: Docker app container with MySQL 8.0.32.
+- Tests not executed and reasons: full-suite and RabbitMQ regression are deferred to later phases; Phase 1 does not change publication or consumption behavior.
+
+**Human Review**
+
+- Can I explain the change without assistance? Pending human review.
+- What would I change if I had more time? Add a dedicated mapper unit suite and reuse shared Inventory object mothers across integration tests.
+- What technical debt remains: transaction coordination, Outbox recording, retry behavior, command-handler wiring and multi-product reservations remain for Phases 2–4.
+
 ### 2026-11-18 — Task 004: Inbox, Idempotent Consumers and Event Ordering
 
 **Objective**

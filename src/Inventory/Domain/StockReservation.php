@@ -18,15 +18,24 @@ final class StockReservation
 		private readonly OrderId $orderId,
 		private readonly Quantity $quantity,
 		private readonly StockReservationStatus $status
-	) {}
-
-	public static function create(ReservationId $id, OrderId $orderId, Quantity $quantity): self
-	{
+	) {
 		if (!$quantity->isPositive()) {
 			throw new QuantityMustBePositiveException($quantity->value());
 		}
+	}
 
+	public static function create(ReservationId $id, OrderId $orderId, Quantity $quantity): self
+	{
 		return new self($id, $orderId, $quantity, StockReservationStatus::Active);
+	}
+
+	public static function reconstitute(
+		ReservationId $id,
+		OrderId $orderId,
+		Quantity $quantity,
+		StockReservationStatus $status
+	): self {
+		return new self($id, $orderId, $quantity, $status);
 	}
 
 	public function id(): ReservationId
