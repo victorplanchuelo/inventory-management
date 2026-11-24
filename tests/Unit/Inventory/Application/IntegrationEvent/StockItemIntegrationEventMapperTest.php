@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use LogicException;
 use Manager\Inventory\Application\IntegrationEvent\StockItemIntegrationEventMapper;
 use Manager\Inventory\Domain\Event\InitialStockRegisteredDomainEvent;
+use Manager\Inventory\Domain\Event\ReservationReleasedDomainEvent;
 use Manager\Inventory\Domain\Event\StockAddedDomainEvent;
 use Manager\Inventory\Domain\Event\StockReservedDomainEvent;
 use Manager\Inventory\Domain\ValueObject\StockItemId;
@@ -69,7 +70,7 @@ final class StockItemIntegrationEventMapperTest extends InventoryUnitTestCase
 	}
 
 	#[Test]
-	public function it_should_reject_an_unsupported_domain_event(): void
+	public function it_should_map_stock_reservation_to_inventory_stock_reserved(): void
 	{
 		$event = new StockReservedDomainEvent(
 			new StockItemId(self::STOCK_ITEM_ID),
@@ -82,6 +83,48 @@ final class StockItemIntegrationEventMapperTest extends InventoryUnitTestCase
 			self::EVENT_ID,
 			self::OCCURRED_ON
 		);
+
+		$message = (new StockItemIntegrationEventMapper())->map($event);
+
+		$this->assertCommonEnvelope($message, 'inventory.stock_reserved');
+		self::assertSame(
+			'{"stockItemId":"' . self::STOCK_ITEM_ID . '","productId":"' . self::PRODUCT_ID
+			. '","onHand":25,"reserved":10,"available":15,"orderId":"' . self::ORDER_ID
+			. '","reservationId":"' . self::RESERVATION_ID . '","reservedQuantity":5}',
+			$message->payloadJson()
+		);
+	}
+
+	#[Test]
+	public function it_should_map_reservation_release_to_inventory_stock_released(): void
+	{
+		$event = new ReservationReleasedDomainEvent(
+			new StockItemId(self::STOCK_ITEM_ID),
+			self::PRODUCT_ID,
+			self::ORDER_ID,
+			self::RESERVATION_ID,
+			5,
+			25,
+			5,
+			self::EVENT_ID,
+			self::OCCURRED_ON
+		);
+
+		$message = (new StockItemIntegrationEventMapper())->map($event);
+
+		$this->assertCommonEnvelope($message, 'inventory.stock_released');
+		self::assertSame(
+			'{"stockItemId":"' . self::STOCK_ITEM_ID . '","productId":"' . self::PRODUCT_ID
+			. '","onHand":25,"reserved":5,"available":20,"orderId":"' . self::ORDER_ID
+			. '","reservationId":"' . self::RESERVATION_ID . '","releasedQuantity":5}',
+			$message->payloadJson()
+		);
+	}
+
+	#[Test]
+	public function it_should_reject_an_unsupported_domain_event(): void
+	{
+		$event = new UnsupportedInventoryDomainEvent(self::STOCK_ITEM_ID);
 
 		$this->expectException(LogicException::class);
 		$this->expectExceptionMessage('Unsupported Inventory domain event');

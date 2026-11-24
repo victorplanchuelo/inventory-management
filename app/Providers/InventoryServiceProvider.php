@@ -10,6 +10,8 @@ use Manager\Inventory\Application\AddStock\AddStockCommandHandler;
 use Manager\Inventory\Application\IntegrationEvent\StockItemIntegrationEventMapper;
 use Manager\Inventory\Application\IntegrationEvent\StockItemIntegrationEventRecorder;
 use Manager\Inventory\Application\RegisterInitialStock\RegisterInitialStockCommandHandler;
+use Manager\Inventory\Application\ReleaseStock\ReleaseStockCommandHandler;
+use Manager\Inventory\Application\ReserveStock\ReserveStockCommandHandler;
 use Manager\Inventory\Application\Stock\StockItemExclusiveReader;
 use Manager\Inventory\Application\Stock\StockItemTransaction;
 use Manager\Inventory\Domain\StockItemRepository;
@@ -59,6 +61,14 @@ final class InventoryServiceProvider extends ServiceProvider
 		$this->app->alias(MySqlStockItemRepository::class, StockItemRepository::class);
 		$this->app->alias(MySqlStockItemRepository::class, StockItemExclusiveReader::class);
 
-		$this->app->tag([RegisterInitialStockCommandHandler::class, AddStockCommandHandler::class, ], 'command_handler');
+		$this->app->tag(
+			[
+				RegisterInitialStockCommandHandler::class,
+				AddStockCommandHandler::class,
+				ReserveStockCommandHandler::class,
+				ReleaseStockCommandHandler::class,
+			],
+			'command_handler'
+		);
 	}
 }

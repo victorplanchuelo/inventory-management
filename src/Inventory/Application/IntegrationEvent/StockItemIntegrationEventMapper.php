@@ -7,7 +7,9 @@ namespace Manager\Inventory\Application\IntegrationEvent;
 use DateTimeImmutable;
 use LogicException;
 use Manager\Inventory\Domain\Event\InitialStockRegisteredDomainEvent;
+use Manager\Inventory\Domain\Event\ReservationReleasedDomainEvent;
 use Manager\Inventory\Domain\Event\StockAddedDomainEvent;
+use Manager\Inventory\Domain\Event\StockReservedDomainEvent;
 use Manager\Shared\Application\Outbox\OutboxMessage;
 use Manager\Shared\Domain\Bus\Event\DomainEvent;
 
@@ -22,6 +24,8 @@ final readonly class StockItemIntegrationEventMapper
 		return match (true) {
 			$event instanceof InitialStockRegisteredDomainEvent => $this->mapInitialStockRegistered($event),
 			$event instanceof StockAddedDomainEvent => $this->mapStockAdded($event),
+			$event instanceof StockReservedDomainEvent => $this->mapStockReserved($event),
+			$event instanceof ReservationReleasedDomainEvent => $this->mapReservationReleased($event),
 			default => throw new LogicException(sprintf('Unsupported Inventory domain event <%s>.', $event::class)),
 		};
 	}
@@ -54,6 +58,42 @@ final readonly class StockItemIntegrationEventMapper
 			'reserved' => $reserved,
 			'available' => $onHand - $reserved,
 			'addedQuantity' => $this->intField($body, 'addedQuantity'),
+		]);
+	}
+
+	private function mapStockReserved(StockReservedDomainEvent $event): OutboxMessage
+	{
+		$body = $event->toPrimitives();
+		$onHand = $this->intField($body, 'onHand');
+		$reserved = $this->intField($body, 'reserved');
+
+		return $this->message($event, 'inventory.stock_reserved', [
+			'stockItemId' => $this->stringField($body, 'stockItemId'),
+			'productId' => $this->stringField($body, 'productId'),
+			'onHand' => $onHand,
+			'reserved' => $reserved,
+			'available' => $onHand - $reserved,
+			'orderId' => $this->stringField($body, 'orderId'),
+			'reservationId' => $this->stringField($body, 'reservationId'),
+			'reservedQuantity' => $this->intField($body, 'reservedQuantity'),
+		]);
+	}
+
+	private function mapReservationReleased(ReservationReleasedDomainEvent $event): OutboxMessage
+	{
+		$body = $event->toPrimitives();
+		$onHand = $this->intField($body, 'onHand');
+		$reserved = $this->intField($body, 'reserved');
+
+		return $this->message($event, 'inventory.stock_released', [
+			'stockItemId' => $this->stringField($body, 'stockItemId'),
+			'productId' => $this->stringField($body, 'productId'),
+			'onHand' => $onHand,
+			'reserved' => $reserved,
+			'available' => $onHand - $reserved,
+			'orderId' => $this->stringField($body, 'orderId'),
+			'reservationId' => $this->stringField($body, 'reservationId'),
+			'releasedQuantity' => $this->intField($body, 'releasedQuantity'),
 		]);
 	}
 

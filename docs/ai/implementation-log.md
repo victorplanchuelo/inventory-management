@@ -50,6 +50,55 @@ Use one entry per task. Keep the log brief and factual.
 
 ## Log
 
+### 2026-11-23 — Task 006 Phase 3: Row-Locked Reservation and Release with Outbox
+
+**Objective**
+
+- Deliver single-product `ReserveStock` and `ReleaseStock` operations with row-level locking, atomic persistence, Outbox recording and real MySQL concurrency tests.
+- Stop for review before multi-product reservations.
+
+**Research**
+
+- Files inspected: both Phase 3 command handlers and commands, `StockItemExclusiveReader`, `MySqlStockItemRepository`, `StockItemTransaction`, `StockItemIntegrationEventMapper`, `StockItemIntegrationEventRecorder`, `StockReservedDomainEvent`, `ReservationReleasedDomainEvent`, `InventoryServiceProvider`, the Phase 2 atomicity tests, `MySqlStockItemRepositoryTest`, `InboxProcessorDuplicateRaceTest`, `InventoryIntegrationTestCase` and the Task006 Phase 3 contract.
+- Existing behavior: both handlers read through non-locking repository searches and saved outside any transaction; the mapper only supported registration and addition.
+- Reused contracts: the existing `StockItemExclusiveReader`, `StockItemTransaction`, `TransactionalSession`, `OutboxRecorder` and domain events. No new repository, transaction or publisher abstraction was introduced.
+- Verified facts: `readByReservationIdForUpdate()` locks the owning stock item before loading its reservations; both reservation events expose `orderId`, `reservationId`, the operation quantity, the resulting `onHand` and `reserved`; `StockItemTransaction` records events only after a successful callback and retries by re-executing the callback.
+- Hypotheses/risks: a release must lock through the reservation's owning stock item so it cannot race a competing operation; generated reservation identifiers must be created before the transaction so retries do not change identity.
+
+**Approved Plan**
+
+- Files modified/created: `StockItemIntegrationEventMapper`, both Phase 3 command handlers, `InventoryServiceProvider`, mapper and handler unit tests, the integration-event recorder unit test, `StockReservationAndReleaseAtomicityTest`, `StockReservationConcurrencyTest` and a test-only unsupported domain event.
+- Design: map the two domain events to `inventory.stock_reserved` and `inventory.stock_released`; reserve inside `StockItemTransaction` after a locking product read; release inside the same transaction after a locking reservation read; tag both handlers as `command_handler`; keep the existing Outbox recorder as the only publisher.
+- Planned tests: handler orchestration and invalid-input cases; exact mapper payloads; atomic commit and rollback for reservation and release; competing reservations; concurrent addition and reservation; lock waiting and latest-state evaluation; repeated release rejection.
+- Acceptance criteria: `docs/tasks/006-inventory-persistence-and-stock-reservation.md`, Phase 3.
+
+**Implementation**
+
+- Changes made: extended `StockItemIntegrationEventMapper` with both integration-event contracts and payloads containing the committed state plus `orderId`, `reservationId` and the operation quantity; rewrote `ReserveStockCommandHandler` to validate and generate the reservation identifier before the transaction, lock by product, reserve, save and return the aggregate; rewrote `ReleaseStockCommandHandler` to lock by reservation, release, save and return the aggregate; tagged both handlers; rewrote their unit tests; added atomicity and `pcntl_fork` concurrency suites.
+- Decisions taken: failures propagate from inside the transaction so Laravel rolls back the aggregate, counters, reservation rows and Outbox records together; business failures are not retried; release resolves and locks the owning stock item through the existing repository method; exact JSON payloads are asserted in mapper, unit and integration tests.
+- Discarded changes and reasons: no locking through a new query method, because `readByReservationIdForUpdate()` already provides the required lock order; no handler-specific transaction helper or publisher; no changes to Orders, Catalog or User persistence. The previous recorder test used a reservation as its unsupported event; since both new events are now mapped, it was retargeted to assert that Outbox append failures propagate, preserving the atomicity guarantee under test.
+
+**Verification**
+
+- Command: `docker compose exec -T app php vendor/bin/phpunit tests/Unit/Inventory tests/Integration/Inventory tests/Integration/Shared/Infrastructure/Outbox`
+- Result: 283 tests, 1.129 assertions, OK.
+- Command: `docker compose exec -T app php vendor/bin/phpunit`
+- Result: 656 tests, 2.285 assertions, OK.
+- Command: targeted `php vendor/bin/ecs check` over every changed path.
+- Result: OK. Full-project ECS still reports the same 46 pre-existing legacy findings in untouched files; no changed file appears in that list.
+- Command: `php vendor/bin/phpstan analyse --no-progress --memory-limit=1G`
+- Result: no errors; `phpstan-baseline.neon` unchanged.
+- Concurrency evidence: exactly one of two competing reservations took the remaining stock; `reserved` never exceeded `on_hand`; concurrent addition and reservation persisted `on_hand = 15` with both Outbox events; a waiting reservation and a waiting release both evaluated the latest committed state after acquiring the lock; a second release was rejected with `ReservationAlreadyReleasedException`. The wait tests synchronize through `information_schema.processlist`: while the parent holds the row lock, they poll until the worker's `FOR UPDATE` statement on `inventory_stock_items` is visible, removing the fixed `usleep` and the elapsed-time assertion.
+- Atomicity evidence: reservation and release commits persisted their Outbox record together; an Outbox write failure rolled back the reservation row, the released status and the counters; an insufficient-stock failure left no reservation row and no success Outbox record.
+- Environment: Docker app container with MySQL 8.0.32 and `pcntl` available.
+- Tests not executed: none.
+
+**Human Review**
+
+- Can I explain the change without assistance? Pending human review.
+- What would I change if I had more time? Extract the shared fork/barrier harness before the Phase 4 batch concurrency tests.
+- What technical debt remains: multi-product reservations, integration-event documentation and Task006 closure remain for Phase 4; reservation-request idempotency remains OD-006.
+
 ### 2026-11-20 — Task 006 Phase 2: Atomic Stock Registration and Addition with Outbox
 
 **Objective**

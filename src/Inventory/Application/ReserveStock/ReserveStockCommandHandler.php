@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Manager\Inventory\Application\ReserveStock;
 
+use Manager\Inventory\Application\Stock\StockItemExclusiveReader;
+use Manager\Inventory\Application\Stock\StockItemTransaction;
+use Manager\Inventory\Domain\Exception\QuantityMustBePositiveException;
 use Manager\Inventory\Domain\Exception\StockItemNotFoundException;
 use Manager\Inventory\Domain\StockItemRepository;
 use Manager\Inventory\Domain\ValueObject\OrderId;
@@ -16,7 +19,9 @@ use Manager\Shared\Domain\UuidGenerator;
 final readonly class ReserveStockCommandHandler implements CommandHandler
 {
 	public function __construct(
+		private StockItemExclusiveReader $reader,
 		private StockItemRepository $repository,
+		private StockItemTransaction $transaction,
 		private UuidGenerator $uuidGenerator
 	) {}
 
@@ -26,16 +31,24 @@ final readonly class ReserveStockCommandHandler implements CommandHandler
 		$orderId = new OrderId($command->orderId());
 		$quantity = new Quantity($command->quantity());
 
-		$stockItem = $this->repository->searchByProductId($productId);
-
-		if ($stockItem === null) {
-			throw new StockItemNotFoundException($productId);
+		if (!$quantity->isPositive()) {
+			throw new QuantityMustBePositiveException($quantity->value());
 		}
 
 		$reservationId = new ReservationId($this->uuidGenerator->generate());
 
-		$stockItem->reserve($reservationId, $orderId, $quantity);
+		$this->transaction->execute(function () use ($productId, $orderId, $quantity, $reservationId): array {
+			$stockItem = $this->reader->readByProductIdForUpdate($productId);
 
-		$this->repository->save($stockItem);
+			if ($stockItem === null) {
+				throw new StockItemNotFoundException($productId);
+			}
+
+			$stockItem->reserve($reservationId, $orderId, $quantity);
+
+			$this->repository->save($stockItem);
+
+			return [$stockItem];
+		});
 	}
 }

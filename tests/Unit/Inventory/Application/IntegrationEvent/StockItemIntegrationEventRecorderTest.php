@@ -4,15 +4,15 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Inventory\Application\IntegrationEvent;
 
-use LogicException;
 use Manager\Inventory\Application\IntegrationEvent\StockItemIntegrationEventMapper;
 use Manager\Inventory\Application\IntegrationEvent\StockItemIntegrationEventRecorder;
 use Manager\Inventory\Domain\ValueObject\Quantity;
+use Manager\Shared\Application\Outbox\OutboxMessage;
+use Manager\Shared\Application\Outbox\OutboxRecorder;
 use PHPUnit\Framework\Attributes\Test;
+use RuntimeException;
 use Tests\Unit\Inventory\Application\Support\CollectingOutboxRecorder;
-use Tests\Unit\Inventory\Domain\ObjectMother\OrderIdMother;
 use Tests\Unit\Inventory\Domain\ObjectMother\QuantityMother;
-use Tests\Unit\Inventory\Domain\ObjectMother\ReservationIdMother;
 use Tests\Unit\Inventory\Domain\ObjectMother\StockItemMother;
 use Tests\Unit\Inventory\InventoryUnitTestCase;
 
@@ -50,16 +50,19 @@ final class StockItemIntegrationEventRecorderTest extends InventoryUnitTestCase
 	}
 
 	#[Test]
-	public function it_should_propagate_mapping_failures(): void
+	public function it_should_propagate_outbox_append_failures(): void
 	{
-		$outbox = new CollectingOutboxRecorder();
-		$recorder = $this->recorder($outbox);
-		$stockItem = StockItemMother::create(initialQuantity: QuantityMother::create(30));
-		$stockItem->pullDomainEvents();
-		$stockItem->reserve(ReservationIdMother::create(), OrderIdMother::create(), QuantityMother::create(10));
+		$outbox = new class() implements OutboxRecorder {
+			public function append(OutboxMessage $message): void
+			{
+				throw new RuntimeException('Outbox append failed.');
+			}
+		};
+		$recorder = new StockItemIntegrationEventRecorder($outbox, new StockItemIntegrationEventMapper());
+		$stockItem = StockItemMother::create();
 
-		$this->expectException(LogicException::class);
-		$this->expectExceptionMessage('Unsupported Inventory domain event');
+		$this->expectException(RuntimeException::class);
+		$this->expectExceptionMessage('Outbox append failed.');
 
 		$recorder->record($stockItem);
 	}

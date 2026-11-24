@@ -18,7 +18,7 @@ implemented_by:
     version: "4.1"
     reasoning_effort: "medium"
 
-last_implementation_at: "2026-11-20T10:13:35Z"
+last_implementation_at: "2026-11-23T10:55:06Z"
 has_completed_all_phases: false
 ---
 
@@ -604,82 +604,95 @@ Deliver end-to-end single-product `ReserveStock` and `ReleaseStock` operations w
 
 #### To-do actions
 
-- [ ] Extend `StockItemIntegrationEventMapper` with `StockReservedDomainEvent` to `inventory.stock_reserved` and `ReservationReleasedDomainEvent` to `inventory.stock_released`.
-- [ ] Include `orderId`, `reservationId`, the operation quantity, `onHand`, `reserved` and `available`.
-- [ ] Modify `ReserveStockCommandHandler` to generate the `ReservationId` before the transaction, read through `StockItemExclusiveReader::readByProductIdForUpdate()`, reserve, persist and return the aggregate inside `StockItemTransaction`.
-- [ ] Modify `ReleaseStockCommandHandler` to read through `StockItemExclusiveReader::readByReservationIdForUpdate()`, release, persist and return the aggregate inside `StockItemTransaction`.
-- [ ] Ensure a release operation always locks the owning stock item before loading its reservations.
-- [ ] Ensure a reservation failure leaves no reservation row, no counter change and no success Outbox record.
-- [ ] Ensure a release failure leaves the reservation active, the reserved counter unchanged and no success Outbox record.
-- [ ] Add the Phase 3 test suites and cases listed below.
-- [ ] Record the phase verification in `docs/ai/implementation-log.md`.
+- [x] Extend `StockItemIntegrationEventMapper` with `StockReservedDomainEvent` to `inventory.stock_reserved` and `ReservationReleasedDomainEvent` to `inventory.stock_released`.
+- [x] Include `orderId`, `reservationId`, the operation quantity, `onHand`, `reserved` and `available`.
+- [x] Modify `ReserveStockCommandHandler` to generate the `ReservationId` before the transaction, read through `StockItemExclusiveReader::readByProductIdForUpdate()`, reserve, persist and return the aggregate inside `StockItemTransaction`.
+- [x] Modify `ReleaseStockCommandHandler` to read through `StockItemExclusiveReader::readByReservationIdForUpdate()`, release, persist and return the aggregate inside `StockItemTransaction`.
+- [x] Ensure a release operation always locks the owning stock item before loading its reservations.
+- [x] Ensure a reservation failure leaves no reservation row, no counter change and no success Outbox record.
+- [x] Ensure a release failure leaves the reservation active, the reserved counter unchanged and no success Outbox record.
+- [x] Add the Phase 3 test suites and cases listed below.
+- [x] Record the phase verification in `docs/ai/implementation-log.md`.
 
 #### Tests
 
 Unit, `tests/Unit/Inventory/Application/ReserveStock/ReserveStockCommandHandlerTest.php`:
 
-- [ ] Reserve stock through the exclusive reader and transaction coordinator.
-- [ ] Generate the reservation identifier before the transaction.
-- [ ] Reject an unknown product without saving.
-- [ ] Reject insufficient stock without saving or recording events.
-- [ ] Propagate invalid quantities before accessing persistence.
-- [ ] Keep every existing test passing.
+- [x] Reserve stock through the exclusive reader and transaction coordinator.
+- [x] Generate the reservation identifier before the transaction.
+- [x] Reject an unknown product without saving.
+- [x] Reject insufficient stock without saving or recording events.
+- [x] Propagate invalid quantities before accessing persistence.
+- [x] Keep every existing test passing.
 
 Unit, `tests/Unit/Inventory/Application/ReleaseStock/ReleaseStockCommandHandlerTest.php`:
 
-- [ ] Release a reservation through the exclusive reader and transaction coordinator.
-- [ ] Reject an unknown reservation without saving.
-- [ ] Propagate `ReservationAlreadyReleasedException`.
-- [ ] Keep every existing test passing.
+- [x] Release a reservation through the exclusive reader and transaction coordinator.
+- [x] Reject an unknown reservation without saving.
+- [x] Propagate `ReservationAlreadyReleasedException`.
+- [x] Keep every existing test passing.
 
 Unit, `tests/Unit/Inventory/Application/IntegrationEvent/StockItemIntegrationEventMapperTest.php`:
 
-- [ ] Map `StockReservedDomainEvent` to `inventory.stock_reserved`.
-- [ ] Map `ReservationReleasedDomainEvent` to `inventory.stock_released`.
-- [ ] Assert resulting state, operation quantities and exact JSON payloads.
+- [x] Map `StockReservedDomainEvent` to `inventory.stock_reserved`.
+- [x] Map `ReservationReleasedDomainEvent` to `inventory.stock_released`.
+- [x] Assert resulting state, operation quantities and exact JSON payloads.
 
 Integration, `tests/Integration/Inventory/Application/StockReservationAndReleaseAtomicityTest.php`:
 
-- [ ] Commit a reservation and its Outbox record together.
-- [ ] Roll back the reservation when the Outbox write fails.
-- [ ] Commit a release and its Outbox record together.
-- [ ] Roll back the release when the Outbox write fails.
-- [ ] Persist the `inventory.stock_reserved` payload with the committed state.
-- [ ] Persist the `inventory.stock_released` payload with the committed state.
-- [ ] Leave no success Outbox record when the reservation fails.
-- [ ] Preserve the identity and status of a released reservation after reload.
+- [x] Commit a reservation and its Outbox record together.
+- [x] Roll back the reservation when the Outbox write fails.
+- [x] Commit a release and its Outbox record together.
+- [x] Roll back the release when the Outbox write fails.
+- [x] Persist the `inventory.stock_reserved` payload with the committed state.
+- [x] Persist the `inventory.stock_released` payload with the committed state.
+- [x] Leave no success Outbox record when the reservation fails.
+- [x] Preserve the identity and status of a released reservation after reload.
 
 Integration, `tests/Integration/Inventory/Application/StockReservationConcurrencyTest.php`:
 
-- [ ] Allow only one of two competing reservations for the remaining stock.
-- [ ] Never persist `reserved > on_hand`.
-- [ ] Preserve consistency when stock is added concurrently with a reservation.
-- [ ] Locate the owning stock item through `readByReservationIdForUpdate()` before releasing.
-- [ ] Hold the owning stock-item lock while a concurrent release waits.
-- [ ] Make the waiting release observe the latest committed state after it acquires the lock.
-- [ ] Reject a second release of the same reservation.
-- [ ] Make the second reservation wait for the stock-item lock and then evaluate the latest committed state.
-- [ ] Assert the persisted stock counters and reservation rows after every concurrent scenario.
-- [ ] Use a second real MySQL connection and process-level synchronization following `InboxProcessorDuplicateRaceTest.php`.
-- [ ] Skip process-level tests only when `pcntl` is unavailable, and document the skip.
+- [x] Allow only one of two competing reservations for the remaining stock.
+- [x] Never persist `reserved > on_hand`.
+- [x] Preserve consistency when stock is added concurrently with a reservation.
+- [x] Locate the owning stock item through `readByReservationIdForUpdate()` before releasing.
+- [x] Hold the owning stock-item lock while a concurrent release waits.
+- [x] Make the waiting release observe the latest committed state after it acquires the lock.
+- [x] Reject a second release of the same reservation.
+- [x] Make the second reservation wait for the stock-item lock and then evaluate the latest committed state.
+- [x] Assert the persisted stock counters and reservation rows after every concurrent scenario.
+- [x] Use a second real MySQL connection and process-level synchronization following `InboxProcessorDuplicateRaceTest.php`.
+- [x] Skip process-level tests only when `pcntl` is unavailable, and document the skip.
 
 Regression:
 
-- [ ] Keep every existing Inventory domain and application test passing.
-- [ ] Keep the Phase 2 registration and addition tests passing.
-- [ ] Keep every existing Outbox test passing.
+- [x] Keep every existing Inventory domain and application test passing.
+- [x] Keep the Phase 2 registration and addition tests passing.
+- [x] Keep every existing Outbox test passing.
 
 #### Verification
 
-- [ ] Run `docker compose exec -T app php vendor/bin/phpunit tests/Unit/Inventory tests/Integration/Inventory tests/Integration/Shared/Infrastructure/Outbox`.
-- [ ] Run `docker compose exec -T app php vendor/bin/ecs check` over the changed paths and then over the full project if the changed paths pass.
-- [ ] Run `docker compose exec -T app php vendor/bin/phpstan analyse --no-progress --memory-limit=1G`.
-- [ ] Verify that no PHPStan baseline entry was added, removed or modified.
-- [ ] Verify that no RabbitMQ network operation executes inside a reservation transaction.
+- [x] Run `docker compose exec -T app php vendor/bin/phpunit tests/Unit/Inventory tests/Integration/Inventory tests/Integration/Shared/Infrastructure/Outbox`.
+- [x] Run `docker compose exec -T app php vendor/bin/ecs check` over the changed paths and then over the full project if the changed paths pass.
+- [x] Run `docker compose exec -T app php vendor/bin/phpstan analyse --no-progress --memory-limit=1G`.
+- [x] Verify that no PHPStan baseline entry was added, removed or modified.
+- [x] Verify that no RabbitMQ network operation executes inside a reservation transaction.
 
 #### Stop
 
-- [ ] STOP. Present the full diff, concurrency test evidence and verification results for review. Suggest the commit message `feat(inventory): reserve and release stock under row locks`. Do not proceed to Phase 4 until the user explicitly asks.
+- [x] STOP. Present the full diff, concurrency test evidence and verification results for review. Suggest the commit message `feat(inventory): reserve and release stock under row locks`. Do not proceed to Phase 4 until the user explicitly asks.
+
+#### Phase 3 verification evidence
+
+- `phpunit tests/Unit/Inventory`: 179 tests, 405 assertions, OK.
+- `phpunit tests/Integration/Inventory`: 53 tests, 297 assertions, OK, including the atomicity and `pcntl_fork` concurrency suites on real MySQL connections.
+- Full `phpunit`: 656 tests, 2.285 assertions, OK.
+- Targeted ECS over every changed path: OK. Full-project ECS still reports the same 46 pre-existing legacy findings in untouched files; none belongs to a changed file.
+- PHPStan level 5: OK, no errors and `phpstan-baseline.neon` unchanged.
+- Concurrency evidence: two competing reservations for the remaining stock leave exactly one active reservation, one `inventory.stock_reserved` Outbox record and `reserved <= on_hand`; concurrent stock addition and reservation converge to `on_hand = 15` with both events; a waiting reservation re-evaluates the latest committed state after the lock is released; a waiting release observes the newly committed `on_hand`; a second release of the same reservation is rejected. The lock-wait tests synchronize through `information_schema.processlist`: while the parent holds the row lock, they wait until the worker's `FOR UPDATE` statement on `inventory_stock_items` is visible, so no fixed sleep or elapsed-time assertion infers the wait.
+- Atomicity evidence: reservation and release commits persist their Outbox record together; an Outbox failure rolls back the reservation row, the released status and the counters; a failed reservation leaves no success Outbox record.
+- Both handlers are tagged as `command_handler`; both use `StockItemExclusiveReader` inside `StockItemTransaction`, and no repository, transaction or publisher abstraction was added.
+- No Orders, Catalog or User persistence code was changed. The existing `OutboxRecorder` remains the only publisher path with the `inventory` producer and no RabbitMQ I/O runs inside the transaction.
+- Process-level tests skip with an explicit message only when `pcntl_fork` is unavailable; it was available in the verification environment.
 
 ### Phase 4: Multi-product reservations and delivery closure
 
@@ -775,6 +788,6 @@ Regression:
 
 ## 5. Next step
 
-Implement Phase 3: add row-locked single-product reservation and release operations with Outbox recording and real MySQL concurrency tests, then stop for review before multi-product reservations.
+Phase 3 is implemented, verified and awaiting explicit review approval. Do not commit and do not start Phase 4 until the user asks. Phase 4 covers multi-product reservations, the integration-event catalogue and Task006 closure.
 
 Transactions retried safely thanks to [Codely](https://codely.com) AI tooling. 🔁 🐢 💨
