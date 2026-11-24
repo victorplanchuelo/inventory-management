@@ -18,8 +18,8 @@ implemented_by:
     version: "4.1"
     reasoning_effort: "medium"
 
-last_implementation_at: "2026-11-23T10:55:06Z"
-has_completed_all_phases: false
+last_implementation_at: "2026-11-24T12:30:58Z"
+has_completed_all_phases: true
 ---
 
 # Inventory Persistence and Stock Reservation
@@ -714,80 +714,96 @@ The transaction retry infrastructure itself is delivered and tested in Phase 2. 
 
 #### To-do actions
 
-- [ ] Create `ReserveStockLine` and `ReserveStockBatchCommand` with the approved signatures.
-- [ ] Create `ReserveStockBatchCommandHandler` with empty-list validation, duplicate-product rejection, pre-transaction identity generation and product-id sorting.
-- [ ] Load all stock items through `StockItemExclusiveReader::readByProductIdForUpdate()` in sorted order.
-- [ ] Apply every reservation before saving any aggregate.
-- [ ] Save every aggregate inside one `StockItemTransaction` execution.
-- [ ] Return no synchronous result.
-- [ ] Verify that a retried batch reloads fresh aggregates, reuses every pre-generated reservation identifier and applies each reservation exactly once.
-- [ ] Tag the batch handler as `command_handler` in `InventoryServiceProvider`.
-- [ ] Add the Phase 4 test suites and cases listed below.
-- [ ] Create `docs/architecture/inventory-integration-events.md` with the approved producer, aggregate, event names, version, payloads, mapping, ordering limitations and Outbox guarantees.
-- [ ] Update `docs/README.md` to link the new integration-events document and Task006.
-- [ ] Update `docs/architecture/open-decisions.md`: mark OD-003 Decided, add OD-006 as Open and record that Task006 publishes without `aggregateVersion`.
-- [ ] Update `docs/tasks/README.md` and `docs/tasks/006-inventory-persistence-and-stock-reservation.md` with the delivery record, verification evidence and final status after explicit review approval.
-- [ ] Update `docs/ai/implementation-log.md` with the phase and final verification record.
+- [x] Create `ReserveStockLine` and `ReserveStockBatchCommand` with the approved signatures.
+- [x] Create `ReserveStockBatchCommandHandler` with empty-list validation, duplicate-product rejection, pre-transaction identity generation and product-id sorting.
+- [x] Load all stock items through `StockItemExclusiveReader::readByProductIdForUpdate()` in sorted order.
+- [x] Apply every reservation before saving any aggregate.
+- [x] Save every aggregate inside one `StockItemTransaction` execution.
+- [x] Return no synchronous result.
+- [x] Verify that a retried batch reloads fresh aggregates, reuses every pre-generated reservation identifier and applies each reservation exactly once.
+- [x] Tag the batch handler as `command_handler` in `InventoryServiceProvider`.
+- [x] Add the Phase 4 test suites and cases listed below.
+- [x] Create `docs/architecture/inventory-integration-events.md` with the approved producer, aggregate, event names, version, payloads, mapping, ordering limitations and Outbox guarantees.
+- [x] Update `docs/README.md` to link the new integration-events document and Task006.
+- [x] Update `docs/architecture/open-decisions.md`: mark OD-003 Decided, add OD-006 as Open and record that Task006 publishes without `aggregateVersion`.
+- [x] Update `docs/tasks/README.md` and `docs/tasks/006-inventory-persistence-and-stock-reservation.md` with the delivery record and verification evidence, leaving the final status pending explicit review approval.
+- [x] Update `docs/ai/implementation-log.md` with the phase and final verification record.
 
 #### Tests
 
 Unit, `tests/Unit/Inventory/Application/ReserveStockBatch/ReserveStockBatchCommandHandlerTest.php`:
 
-- [ ] Reserve multiple products in one transaction.
-- [ ] Sort lines by `productId` before calling the exclusive reader.
-- [ ] Reject an empty request before accessing persistence.
-- [ ] Reject duplicate products before accessing persistence.
-- [ ] Reject an unknown product and leave no saves.
-- [ ] Reject insufficient stock in any line and leave no saves.
-- [ ] Generate every reservation identifier before the transaction.
-- [ ] Return all reserved stock items from the operation callback so the transaction coordinator can record their events.
-- [ ] Return no synchronous result.
+- [x] Reserve multiple products in one transaction.
+- [x] Sort lines by `productId` before calling the exclusive reader.
+- [x] Reject an empty request before accessing persistence.
+- [x] Reject duplicate products before accessing persistence.
+- [x] Reject an unknown product and leave no saves.
+- [x] Reject insufficient stock in any line and leave no saves.
+- [x] Generate every reservation identifier before the transaction.
+- [x] Return all reserved stock items from the operation callback so the transaction coordinator can record their events.
+- [x] Return no synchronous result.
 
 Integration, `tests/Integration/Inventory/Application/StockBatchReservationTest.php`:
 
-- [ ] Reserve multiple products atomically.
-- [ ] Roll back every product when one reservation fails.
-- [ ] Write one Outbox record per reserved product.
-- [ ] Leave no partial counters, reservations or success Outbox records after rollback.
-- [ ] Complete two concurrent batches with reversed input order without a deadlock because locks are sorted by product identifier.
-- [ ] Assert every persisted counter and reservation after the batch completes.
+- [x] Reserve multiple products atomically.
+- [x] Roll back every product when one reservation fails.
+- [x] Write one Outbox record per reserved product.
+- [x] Leave no partial counters, reservations or success Outbox records after rollback.
+- [x] Complete two concurrent batches with reversed input order without a deadlock because locks are sorted by product identifier.
+- [x] Assert every persisted counter and reservation after the batch completes.
 
 Integration, `tests/Integration/Inventory/Application/StockBatchRetryTest.php`:
 
-- [ ] Retry a batch operation after a retryable deadlock or lock-wait failure.
-- [ ] Apply the complete batch exactly once after a retry.
-- [ ] Preserve every pre-generated reservation identifier across retries.
-- [ ] Do not create duplicate reservations after a retry.
-- [ ] Do not create duplicate Outbox records after a retry.
-- [ ] Reload fresh aggregates on every retry instead of reusing mutated instances.
-- [ ] Stop after three attempts, rethrow the final failure and leave no partial counters, reservations or Outbox records.
-- [ ] Leave no open transaction after exhausted retries.
-- [ ] Do not retry a business validation failure in a batch.
+- [x] Retry a batch operation after a retryable deadlock or lock-wait failure.
+- [x] Apply the complete batch exactly once after a retry.
+- [x] Preserve every pre-generated reservation identifier across retries.
+- [x] Do not create duplicate reservations after a retry.
+- [x] Do not create duplicate Outbox records after a retry.
+- [x] Reload fresh aggregates on every retry instead of reusing mutated instances.
+- [x] Stop after three attempts, rethrow the final failure and leave no partial counters, reservations or Outbox records.
+- [x] Leave no open transaction after exhausted retries.
+- [x] Do not retry a business validation failure in a batch.
 
 Regression:
 
-- [ ] Run the complete PHPUnit suite.
-- [ ] Keep every existing Inventory, Shared, Outbox, Inbox and API test passing.
-- [ ] Verify Task006 acceptance criteria item by item.
-- [ ] Verify no Orders, Catalog or User persistence is accessed.
-- [ ] Verify no cross-context transaction, Event Sourcing, warehouse support, Redis or generic workflow engine is introduced.
+- [x] Run the complete PHPUnit suite.
+- [x] Keep every existing Inventory, Shared, Outbox, Inbox and API test passing.
+- [x] Verify Task006 acceptance criteria item by item.
+- [x] Verify no Orders, Catalog or User persistence is accessed.
+- [x] Verify no cross-context transaction, Event Sourcing, warehouse support, Redis or generic workflow engine is introduced.
 
 #### Verification
 
-- [ ] Run `docker compose exec -T app php artisan migrate:status --env=testing`.
-- [ ] Run `docker compose exec -T app php vendor/bin/phpunit`.
-- [ ] Run `docker compose exec -T app php vendor/bin/ecs check`.
-- [ ] Run `docker compose exec -T app php vendor/bin/phpstan analyse --no-progress --memory-limit=1G`.
-- [ ] Verify that no PHPStan baseline entry was added, removed or modified.
-- [ ] Verify that the full applicable test suite was executed, not inferred.
-- [ ] Verify that no commit, push or pull request was created without explicit approval.
+- [x] Run `docker compose exec -T app php artisan migrate:status --env=testing`.
+- [x] Run `docker compose exec -T app php vendor/bin/phpunit`.
+- [x] Run `docker compose exec -T app php vendor/bin/ecs check`.
+- [x] Run `docker compose exec -T app php vendor/bin/phpstan analyse --no-progress --memory-limit=1G`.
+- [x] Verify that no PHPStan baseline entry was added, removed or modified.
+- [x] Verify that the full applicable test suite was executed, not inferred.
+- [x] Verify that no commit, push or pull request was created without explicit approval.
 
 #### Stop
 
-- [ ] STOP. Present the final diff, full verification results, acceptance-criteria checklist and documentation changes for review. Suggest the commit message `feat(inventory): support atomic multi-product reservations` and, if documentation is separated, `docs(inventory): document integration events and close task 006`. Do not mark Task006 as Verified or proceed to any follow-up task until the user explicitly approves.
+- [x] STOP. Present the final diff, full verification results, acceptance-criteria checklist and documentation changes for review. Suggest the commit message `feat(inventory): support atomic multi-product reservations` and, if documentation is separated, `docs(inventory): document integration events and close task 006`. Do not mark Task006 as Verified or proceed to any follow-up task until the user explicitly approves.
+
+#### Phase 4 verification evidence
+
+- `php artisan migrate:status --env=testing`: all migrations ran, including `create_inventory_stock_items_table` and `create_inventory_stock_reservations_table`.
+- New batch handler unit suite: 9 tests, 47 assertions, OK.
+- New batch integration suites: 8 tests, 125 assertions, OK.
+- Targeted `phpunit tests/Unit/Inventory tests/Integration/Inventory tests/Integration/Shared/Infrastructure/Outbox`: 300 tests, 1.301 assertions, OK.
+- Full `phpunit`: 673 tests, 2.457 assertions, OK.
+- Targeted ECS over every changed path: OK. Full-project ECS still reports the same 46 pre-existing legacy findings in untouched files; none belongs to a changed path.
+- PHPStan level 5: OK, no errors and `phpstan-baseline.neon` unchanged.
+- `ReserveStockBatchCommandHandler` is tagged as `command_handler` together with the existing Inventory handlers.
+- Concurrent evidence: two batches with reversed input order completed without a deadlock, each in a single transaction attempt; the final counters were `reserved = 3` and `reserved = 7`, with four reservations and four `inventory.stock_reserved` Outbox records.
+- Retry evidence: the first save forced one deadlock; the retried batch reloaded fresh aggregates, reused both pre-generated reservation identifiers and persisted exactly two reservations and two Outbox records. An always-failing repository stopped after three attempts with no counters, reservations, Outbox records or open transaction. An insufficient-stock failure was not retried.
+- No Orders, Catalog or User persistence is accessed. No cross-context transaction, Event Sourcing, warehouse support, Redis or generic workflow engine was introduced.
+- The public catalogue is documented in `docs/architecture/inventory-integration-events.md`; OD-003 is Decided and OD-006 is Open. Task006 is recorded as `Implemented (pending review)`.
+- No commit, push or pull request was created for Phase 4.
 
 ## 5. Next step
 
-Phase 3 is implemented, verified and awaiting explicit review approval. Do not commit and do not start Phase 4 until the user asks. Phase 4 covers multi-product reservations, the integration-event catalogue and Task006 closure.
+Phase 4 is implemented, verified and awaiting explicit review approval. Task006 remains `Implemented (pending review)`. Do not mark it `Verified`, commit Phase 4 or start any follow-up task until the user explicitly approves.
 
-Transactions retried safely thanks to [Codely](https://codely.com) AI tooling. 🔁 🐢 💨
+Multi-product batches locked in order thanks to [Codely](https://codely.com) AI tooling. 📦 🔒 🔁 🐢 💨

@@ -12,6 +12,7 @@ use Manager\Inventory\Application\IntegrationEvent\StockItemIntegrationEventReco
 use Manager\Inventory\Application\RegisterInitialStock\RegisterInitialStockCommandHandler;
 use Manager\Inventory\Application\ReleaseStock\ReleaseStockCommandHandler;
 use Manager\Inventory\Application\ReserveStock\ReserveStockCommandHandler;
+use Manager\Inventory\Application\ReserveStockBatch\ReserveStockBatchCommandHandler;
 use Manager\Inventory\Application\Stock\StockItemExclusiveReader;
 use Manager\Inventory\Application\Stock\StockItemTransaction;
 use Manager\Inventory\Domain\StockItemRepository;
@@ -66,6 +67,7 @@ final class InventoryServiceProvider extends ServiceProvider
 				RegisterInitialStockCommandHandler::class,
 				AddStockCommandHandler::class,
 				ReserveStockCommandHandler::class,
+				ReserveStockBatchCommandHandler::class,
 				ReleaseStockCommandHandler::class,
 			],
 			'command_handler'

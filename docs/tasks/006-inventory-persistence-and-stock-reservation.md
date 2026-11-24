@@ -1,7 +1,9 @@
 # Task 006 — Inventory Persistence and Stock Reservation
 
-**Status:** Proposed  
-**Bounded Context:** Inventory  
+**Status:** Implemented (pending review)
+
+**Bounded Context:** Inventory
+
 **Phase:** Persistence and Transactional Stock Operations
 
 ## 1. Objective
@@ -536,26 +538,26 @@ No test may be reported as passing until it has actually been executed.
 
 ## 13. Acceptance Criteria
 
-- [ ] Inventory stock persistence is implemented in its own Infrastructure layer.
-- [ ] StockItems and StockReservations have dedicated migrations.
-- [ ] One StockItem per ProductId is enforced by a database unique constraint.
-- [ ] StockItem identifiers and ProductIds use the approved UUID representation.
-- [ ] Reservation records remain owned by StockItem.
-- [ ] The repository persists and reconstructs complete StockItem aggregates.
-- [ ] The repository can locate a StockItem by ReservationId.
-- [ ] Active and released reservation states are persisted correctly.
-- [ ] StockItem changes and reservation changes are committed atomically.
-- [ ] Concurrent stock operations are protected by appropriate row locking.
-- [ ] Multi-product reservation operations roll back completely when any requested reservation fails.
-- [ ] Database deadlocks and retryable failures have an explicit bounded retry policy.
-- [ ] Inventory integration events represent committed business facts.
-- [ ] Inventory business changes and corresponding Outbox records are committed in the same transaction.
-- [ ] The implementation reuses Task 003 Outbox infrastructure instead of creating another publisher.
-- [ ] No RabbitMQ network I/O occurs inside the Inventory transaction.
-- [ ] MySQL integration tests verify persistence, rollback and concurrency behavior.
-- [ ] Existing Inventory domain and application tests continue to pass.
-- [ ] No Orders or Catalog persistence is accessed.
-- [ ] No cross-context transaction, Event Sourcing, warehouse support or generic workflow engine is introduced.
+- [x] Inventory stock persistence is implemented in its own Infrastructure layer.
+- [x] StockItems and StockReservations have dedicated migrations.
+- [x] One StockItem per ProductId is enforced by a database unique constraint.
+- [x] StockItem identifiers and ProductIds use the approved UUID representation.
+- [x] Reservation records remain owned by StockItem.
+- [x] The repository persists and reconstructs complete StockItem aggregates.
+- [x] The repository can locate a StockItem by ReservationId.
+- [x] Active and released reservation states are persisted correctly.
+- [x] StockItem changes and reservation changes are committed atomically.
+- [x] Concurrent stock operations are protected by appropriate row locking.
+- [x] Multi-product reservation operations roll back completely when any requested reservation fails.
+- [x] Database deadlocks and retryable failures have an explicit bounded retry policy.
+- [x] Inventory integration events represent committed business facts.
+- [x] Inventory business changes and corresponding Outbox records are committed in the same transaction.
+- [x] The implementation reuses Task 003 Outbox infrastructure instead of creating another publisher.
+- [x] No RabbitMQ network I/O occurs inside the Inventory transaction.
+- [x] MySQL integration tests verify persistence, rollback and concurrency behavior.
+- [x] Existing Inventory domain and application tests continue to pass.
+- [x] No Orders or Catalog persistence is accessed.
+- [x] No cross-context transaction, Event Sourcing, warehouse support or generic workflow engine is introduced.
 
 ## 14. Risks and Open Decisions
 
@@ -633,3 +635,41 @@ The following capabilities belong to later tasks:
 - Projection reconciliation and monitoring.
 
 The implementation must provide a reliable Inventory persistence foundation without prematurely introducing those capabilities.
+
+## 16. Delivery Record
+
+**Implementation status:** Implemented; pending explicit technical review approval.
+
+**Delivered phases:**
+
+- Phase 1: Inventory-owned MySQL persistence for complete `StockItem` aggregates and their reservations. Committed as `7f4e289`.
+- Phase 2: Transactional registration and stock addition with atomic Outbox recording and bounded retries. Committed as `3f8d105`.
+- Phase 3: Row-locked single-product reservation and release with Outbox recording and real MySQL concurrency tests. Committed as `7f4cd1e`.
+- Phase 4: Atomic multi-product reservations with deterministic lock ordering, batch retry verification, the public Inventory integration-event catalogue and Task006 closure documentation. Implemented and verified locally on 2026-11-24; not committed.
+
+**Implementation summary:**
+
+- Inventory owns the `inventory_stock_items` and `inventory_stock_reservations` tables, their migrations, Eloquent models, persistence mapper and repository adapter.
+- Single-product and multi-product stock operations run inside the shared transaction infrastructure with row locking and a bounded three-attempt retry policy.
+- Multi-product batches validate the request before persistence, generate reservation identifiers before the transaction, sort by `productId`, load every aggregate in sorted order, apply every reservation before saving and commit all counters, reservations and Outbox records together.
+- The existing Task003 Outbox remains the only publisher. Inventory records `inventory.stock_registered`, `inventory.stock_added`, `inventory.stock_reserved` and `inventory.stock_released` with the committed state.
+- The public contract is documented in `docs/architecture/inventory-integration-events.md`.
+
+**Verification evidence:**
+
+- `php artisan migrate:status --env=testing`: all migrations ran, including both Inventory migrations.
+- `phpunit tests/Unit/Inventory tests/Integration/Inventory tests/Integration/Shared/Infrastructure/Outbox`: 300 tests, 1.301 assertions, OK.
+- Full `phpunit`: 673 tests, 2.457 assertions, OK.
+- ECS over every changed path: OK. Full-project ECS still reports the same 46 pre-existing legacy findings in untouched files.
+- PHPStan level 5: OK, no errors and `phpstan-baseline.neon` unchanged.
+- The batch handler is tagged as `command_handler`; no new repository, transaction or publisher abstraction was introduced.
+- No Orders, Catalog or User persistence is accessed. No cross-context transaction, Event Sourcing, warehouse support, Redis or generic workflow engine was introduced.
+- The full applicable test suite was executed, not inferred. No commit, push or pull request was created for Phase 4 without explicit approval.
+
+**Acceptance criteria:** all items in section 13 are checked. The task must not be marked `Verified` until the explicit technical review approval is recorded.
+
+**Pending:**
+
+- Explicit technical review approval.
+- Commit of Phase 4 and the documentation changes.
+- OD-001, OD-002 and OD-006 remain open as documented in `docs/architecture/open-decisions.md`.

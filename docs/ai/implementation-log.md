@@ -50,6 +50,64 @@ Use one entry per task. Keep the log brief and factual.
 
 ## Log
 
+### 2026-11-24 — Task 006 Phase 4: Multi-Product Reservations and Delivery Closure
+
+**Objective**
+
+- Deliver atomic multi-product reservations with deterministic lock ordering, batch-level retry verification and the final Inventory integration-event catalogue.
+- Close Task006 documentation without marking it `Verified` before the explicit technical review approval.
+
+**Research**
+
+- Files inspected: the single-product reservation handlers, `StockItemTransaction`, `MySqlTransactionalSession`, `StockItemExclusiveReader`, `MySqlStockItemRepository`, the integration-event mapper and recorder, `InventoryServiceProvider`, the Phase 2 retry tests, the Phase 3 concurrency tests, Task006, ADR 004, the open-decisions register and the existing Outbox and Inbox documentation.
+- Existing behavior: reservations supported one product per command; `StockItemTransaction` retries the operation callback up to three attempts and records events only after a successful callback; the Outbox mapper already supported the four Inventory events.
+- Reused contracts: `StockItemExclusiveReader`, `StockItemTransaction`, `TransactionalSession`, `OutboxRecorder`, `StockItemIntegrationEventMapper` and the existing domain events. No new repository, transaction or publisher abstraction was introduced.
+- Verified facts: `MySqlTransactionalSession` relies on Laravel's transaction retry for concurrency errors; pre-generated reservation identifiers survive callback retries because they are created before `StockItemTransaction::execute()`; `information_schema.processlist` is not needed for the batch retry tests because the failure is injected through a repository decorator.
+- Hypotheses/risks: sorting by `productId` before locking prevents reversed-order batches from deadlocking; a retried batch must reload fresh aggregates and reuse the prepared identifiers, otherwise it can duplicate reservations or change their identity.
+
+**Approved Plan**
+
+- Files created/modified: `ReserveStockLine`, `ReserveStockBatchCommand`, `ReserveStockBatchCommandHandler` and its validation exceptions, `InventoryServiceProvider`, the batch handler unit test, `StockBatchReservationTest`, `StockBatchRetryTest`, test support classes, `docs/architecture/inventory-integration-events.md`, `docs/README.md`, `docs/architecture/open-decisions.md`, `docs/tasks/README.md`, the Task006 document and this log.
+- Design: validate and deduplicate the request before persistence; generate one reservation identifier per line before the transaction; sort by `productId`; load every stock item through `readByProductIdForUpdate()` in sorted order; reserve every aggregate before saving any of them; save all aggregates and return them from the single `StockItemTransaction` callback so their events are recorded together.
+- Planned tests: handler orchestration, validation and ordering; atomic multi-product commit and rollback; one Outbox record per product; concurrent reversed-order batches; retry with fresh reloads and stable identifiers; exhausted retries; no retry for business failures.
+- Acceptance criteria: `docs/tasks/006-inventory-persistence-and-stock-reservation.md`, Phase 4.
+
+**Implementation**
+
+- Changes made: added the batch application contract and handler; tagged the handler as `command_handler`; added the unit suite, the atomicity and concurrency integration suite and the retry integration suite; documented the four Inventory integration events, the envelope, mapping, ordering limitations and Outbox guarantees; marked OD-003 Decided and added OD-006 as Open; recorded the implementation status in the task index and Task006 without marking it Verified.
+- Decisions taken: empty batches and duplicate products fail before any persistence access; every line is validated and prepared before the transaction; the batch returns no synchronous result; all reservations are applied before any aggregate is saved; reservation identifiers are generated once per line and reused across transaction retries.
+- Discarded changes and reasons: no batch-specific repository, transaction coordinator or publisher; no aggregate versioning or Event Sourcing; no Orders, Catalog or User persistence access; no cross-context transaction or generic workflow engine.
+
+**Verification**
+
+- Command: `docker compose exec -T app php artisan migrate:status --env=testing`
+- Result: all migrations ran, including the Inventory stock-item and stock-reservation migrations.
+- Command: `docker compose exec -T app php vendor/bin/phpunit tests/Unit/Inventory/Application/ReserveStockBatch`
+- Result: 9 tests, 47 assertions, OK.
+- Command: `docker compose exec -T app php vendor/bin/phpunit tests/Integration/Inventory/Application/StockBatchReservationTest.php tests/Integration/Inventory/Application/StockBatchRetryTest.php`
+- Result: 8 tests, 125 assertions, OK.
+- Command: `docker compose exec -T app php vendor/bin/phpunit tests/Unit/Inventory tests/Integration/Inventory tests/Integration/Shared/Infrastructure/Outbox`
+- Result: 300 tests, 1.301 assertions, OK.
+- Command: `docker compose exec -T app php vendor/bin/phpunit`
+- Result: 673 tests, 2.457 assertions, OK.
+- Command: `docker compose exec -T app php vendor/bin/ecs check` over every changed path
+- Result: OK. The full-project run still reports the same 46 pre-existing legacy findings in untouched files; none belongs to a changed path.
+- Command: `docker compose exec -T app php vendor/bin/phpstan analyse --no-progress --memory-limit=1G`
+- Result: OK, no errors and `phpstan-baseline.neon` unchanged.
+- Concurrent evidence: both reversed-order batch workers completed in a single transaction attempt each and persisted four reservations plus four `inventory.stock_reserved` Outbox records.
+- Command: `php artisan tinker` over `app()->tagged('command_handler')`
+- Result: `ReserveStockBatchCommandHandler` is tagged together with the existing Inventory handlers.
+- Command: repository searches for Orders, Catalog and User persistence references in Inventory and for Redis, Event Sourcing, workflow or saga references in the new code
+- Result: no matches.
+- Environment: Docker app container with MySQL 8.0.32; `pcntl` available for the concurrent batch test.
+- Tests not executed and reasons: none.
+
+**Human Review**
+
+- Can I explain the change without assistance? Pending human review.
+- What would I change if I had more time? Add a consumer-side projection test once an Inventory consumer exists.
+- What technical debt remains? OD-001, OD-002 and OD-006 remain open; Phase 4 and the documentation changes are not committed; Task006 remains `Implemented (pending review)`.
+
 ### 2026-11-23 — Task 006 Phase 3: Row-Locked Reservation and Release with Outbox
 
 **Objective**

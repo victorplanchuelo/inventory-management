@@ -21,6 +21,7 @@ System structure, domain model and architectural conventions:
 - `architecture/architectural-reference.md`: implementation conventions and architectural patterns.
 - `architecture/outbox-operations.md`: operational runbook for the Transactional Outbox, publisher supervision, monitoring, retries, retention and purge.
 - `architecture/inbox-operations.md`: operational runbook for per-context Inboxes, idempotent consumers, ordering policies, failure routing, observability, retention and purge.
+- `architecture/inventory-integration-events.md`: public Inventory integration-event catalogue, payloads, mapping, ordering limitations and Outbox guarantees.
 
 ## Architecture Decision Records
 
@@ -49,6 +50,7 @@ Start with `tasks/README.md` for the task index, dependencies and implementation
 | 03 | `tasks/003-transactional-outbox-and-integration-infrastructure.md` | Atomic Outbox persistence and reliable RabbitMQ publication. |
 | 04 | `tasks/004-inbox-idempotent-consumers-and-event-ordering.md` | Idempotent event consumption, Inbox persistence and aggregate-version handling. |
 | 05 | `tasks/005-orders-inventory-availability-projection.md` | Orders-owned Inventory availability projection and advisory API query. |
+| 06 | `tasks/006-inventory-persistence-and-stock-reservation.md` | Inventory persistence, transactional stock reservation and integration events. |
 
 Task documents define scope, responsibilities, dependencies, expected behaviour and verification criteria before implementation begins.
 
@@ -75,7 +77,8 @@ docs/
 │   ├── domain-model.md
 │   ├── architectural-reference.md
 │   ├── outbox-operations.md
-│   └── inbox-operations.md
+│   ├── inbox-operations.md
+│   └── inventory-integration-events.md
 ├── adr/
 │   ├── 001-modular-monolith.md
 │   ├── 002-atomic-stock-reservation.md
@@ -88,7 +91,8 @@ docs/
 │   ├── 002-shared-domain-event-compatibility-and-test-structure.md
 │   ├── 003-transactional-outbox-and-integration-infrastructure.md
 │   ├── 004-inbox-idempotent-consumers-and-event-ordering.md
-│   └── 005-orders-inventory-availability-projection.md
+│   ├── 005-orders-inventory-availability-projection.md
+│   └── 006-inventory-persistence-and-stock-reservation.md
 └── ai/
     ├── working-agreements.md
     └── implementation-log.md

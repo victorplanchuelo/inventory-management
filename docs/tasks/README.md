@@ -13,7 +13,7 @@ Each task describes a bounded piece of work derived from the project requirement
 | 003 | `003-transactional-outbox-and-integration-infrastructure.md` | Transactional Outbox and reliable RabbitMQ publication. | Verified |
 | 004 | `004-inbox-idempotent-consumers-and-event-ordering.md` | Idempotent message consumption, Inbox and event ordering. | Verified |
 | 005 | `005-orders-inventory-availability-projection.md` | Orders-owned Inventory availability projection and advisory queries. | Proposed |
-| 006 | `006-inventory-persistence-and-stock-reservation.md` | Inventory persistence and Stock Reservation. | Proposed |
+| 006 | `006-inventory-persistence-and-stock-reservation.md` | Inventory persistence and Stock Reservation. | Implemented (pending review) |
 
 The table describes the documents currently present. It is not a commitment to execute tasks in numerical order. Execution order must respect the actual dependencies and the implementation plan approved for each task.
 
@@ -21,9 +21,11 @@ The table describes the documents currently present. It is not a commitment to e
 
 **Task 004 verification note:** `Verified` means that the automated checks and acceptance criteria were verified on 2026-11-18 and the technical review was approved on 2026-11-19. The implementation is committed as `93bb52c` on `feature/stockflow-foundation` and has not been pushed.
 
-**Current implementation focus:** none. No task is currently approved for implementation.
+**Task 006 implementation note:** Task006 phases 1 to 3 are committed as `7f4e289`, `3f8d105` and `7f4cd1e` on `feature/stockflow-foundation`. Phase 4 and the final documentation are implemented and verified locally on 2026-11-24 but are not committed. Task006 remains `Implemented (pending review)` until the explicit technical review approval is recorded.
 
-Tasks 001, 002, 003 and 004 have been implemented and verified. Tasks 003 and 004 have been reviewed and committed; only Task 003 has been pushed. Tasks 005 and 006 remain proposed and require explicit approval before implementation starts.
+**Current implementation focus:** Task006 is implemented and awaiting technical review.
+
+Tasks 001, 002, 003, 004 and 006 have been implemented. Tasks 001, 002, 003 and 004 have been reviewed and committed; only Task 003 has been pushed. Task 005 remains proposed and requires explicit approval before implementation starts. Task006 must not be marked `Verified` until the technical review is approved.
 
 Future capabilities must not be treated as current implementation scope merely because they appear in requirements, ADRs or proposed task documents.
 

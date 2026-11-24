@@ -67,6 +67,8 @@ Consumers and projections may need aggregate versions to identify stale, duplica
 
 The event infrastructure must not assume that RabbitMQ delivery ordering alone guarantees correct projection state.
 
+Task006 publishes Inventory integration events without `aggregateVersion`. The absence is intentional and documented in `docs/architecture/inventory-integration-events.md`; this decision remains open for any future version-based ordering or projection correctness.
+
 **Decision required:**
 
 Define:
@@ -93,7 +95,7 @@ Before relying on aggregate versions for event publication or projection correct
 
 ### OD-003 — Inventory Domain Events to Integration Event Mapping
 
-**Status:** Open
+**Status:** Decided
 
 **Context:**
 
@@ -112,16 +114,29 @@ Determine:
 - Which resulting stock quantities and identifiers must be included.
 - How integration contracts remain independent of internal domain classes.
 
+**Resolution:**
+
+Task006 defined and implemented the Inventory integration-event catalogue documented in `docs/architecture/inventory-integration-events.md` and mapped by `StockItemIntegrationEventMapper`.
+
+- Producer: `inventory`.
+- Aggregate type: `stock_item`.
+- Contract version: `1`.
+- Published events: `inventory.stock_registered`, `inventory.stock_added`, `inventory.stock_reserved` and `inventory.stock_released`.
+- Payloads contain the resulting committed `onHand`, `reserved` and `available` values plus the operation-specific identifiers and quantities.
+- Each mapped Inventory domain event produces one integration event. Domain events remain internal and do not become public contracts automatically.
+- Inventory publishes without `aggregateVersion`; OD-002 remains open.
+
 **Related documents:**
 
+- `docs/architecture/inventory-integration-events.md`
 - `docs/tasks/003-transactional-outbox-and-integration-infrastructure.md`
-- `docs/tasks/006-inventory-persistence-and-stock-reservation.md` (if retained as a future task specification)
+- `docs/tasks/006-inventory-persistence-and-stock-reservation.md`
 - `docs/adr/003-outbox-rabbitmq.md`
 - `docs/adr/004-integration-events-and-cross-context-communication.md`
 
 **Resolution trigger:**
 
-Before implementing Inventory integration-event publication.
+Resolved by Task006 when the Inventory integration-event catalogue was implemented and documented.
 
 ---
 
@@ -181,6 +196,38 @@ If deferred, define how ProductIds are supplied and managed during the period in
 **Review trigger:**
 
 Before defining or implementing the Catalog foundation, or when product creation and lifecycle requirements become necessary.
+
+---
+
+### OD-006 — Reservation Request Idempotency
+
+**Status:** Open
+
+**Context:**
+
+Task006 delivers atomic single-product and multi-product reservations. The application commands generate reservation identifiers internally and do not accept a caller-supplied request identity.
+
+Inventory guarantees that each reservation identifier is applied at most once. It cannot identify two separate requests as the same business intent. A caller that retries after an ambiguous failure, such as a timeout after the Inventory transaction committed, can therefore create a second reservation.
+
+**Decision required:**
+
+Define the identity and retry semantics of a reservation request before Orders confirmation relies on Inventory reservations. At minimum:
+
+- Whether the caller supplies an idempotency key or a reservation-request identifier.
+- How Inventory persists and enforces that identity.
+- What response is returned for a duplicate request.
+- How retries interact with multi-product batches.
+
+**Related documents:**
+
+- `docs/tasks/006-inventory-persistence-and-stock-reservation.md`
+- `docs/adr/002-atomic-stock-reservation.md`
+- `docs/adr/004-integration-events-and-cross-context-communication.md`
+- OD-001 in this register
+
+**Resolution trigger:**
+
+Before Orders confirmation uses Inventory reservations, or before any caller retries reservation requests automatically.
 
 ## 3. Review Process
 
