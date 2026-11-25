@@ -6,6 +6,7 @@ return [
 	App\Providers\AppServiceProvider::class,
 	App\Providers\InventoryServiceProvider::class,
 	App\Providers\InboxServiceProvider::class,
+	App\Providers\OrdersServiceProvider::class,
 	App\Providers\OutboxServiceProvider::class,
 	App\Providers\RabbitMqProvider::class,
 	App\Providers\UserProvider::class,

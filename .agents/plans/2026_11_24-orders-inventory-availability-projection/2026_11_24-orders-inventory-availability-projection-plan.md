@@ -606,36 +606,48 @@ This phase consumes all four Inventory stock events from the start, so no suppor
 
 #### To-do actions
 
-- [ ] Create `database/migrations/2026_11_24_000001_create_orders_inbox_table.php` with the exact Task004 schema, indexes and `orders_inbox_processing_state_is_consistent` check constraint. Add the check constraint with a raw `ALTER TABLE` statement following the existing Outbox and Task004 conventions.
-- [ ] Create `database/migrations/2026_11_24_000002_create_orders_inventory_availability_table.php` with the approved columns, `product_id` primary key, non-unique `stock_item_id` index and the three check constraints. Add the checks with raw `ALTER TABLE` statements.
-- [ ] Add `'orders' => 'orders_inbox'` to `config/inbox.php`.
-- [ ] Implement `InventoryAvailability` with identifier validation, quantity invariants, derived `available()` and UTC normalization. Do not add `aggregateVersion`.
-- [ ] Implement `InventoryAvailabilityRepository` and `MySqlInventoryAvailabilityRepository`. Use a simple atomic last-arrival upsert in this phase. Require an active transaction for `apply()` and throw `LogicException` before any query otherwise.
-- [ ] Implement `InventoryStockState`, `UpdateInventoryAvailability`, `GetInventoryAvailabilityQuery`, `GetInventoryAvailabilityQueryHandler` and `InventoryAvailabilityResponse`. Do not add `aggregateVersion`.
-- [ ] Implement `InventoryStockProjectionSubscriber` with the four event names, version `1`, consumer name, `NoOrderingAggregateVersionPolicy`, payload validation and permanent failure behavior.
-- [ ] Implement `InvalidInventoryStockEvent` extending `PermanentIntegrationEventFailure`.
-- [ ] Create `OrdersServiceProvider`, bind the repository through `InboxConnectionFactory::connection()`, tag the subscriber as `integration_event_subscriber`, tag the query handler as `query_handler` and register the provider in `bootstrap/providers.php`.
-- [ ] Create `routes/orders.php`, register the `orders` prefix in `bootstrap/app.php` and implement `GetInventoryAvailabilityController` with the UUID route constraint, 200 response and 404 Problem Details response.
-- [ ] Add the unit, integration and API tests listed above.
-- [ ] Create `docs/architecture/orders-inventory-availability-projection.md` and index it in `docs/README.md`. Include the Phase 1 production warning.
-- [ ] Run the migrations against the `testing` database.
-- [ ] Verify the changes in terms of typechecking, linting and tests using `docker compose exec -T app php vendor/bin/ecs check`, `docker compose exec -T app php vendor/bin/phpstan analyse --no-progress --memory-limit=1G` and `docker compose exec -T app php vendor/bin/phpunit`. Fix issues if any. Do not add or modify PHPStan baseline entries.
-- [ ] STOP. Present the changes, migration status and verification results to the user for review. Suggest the commit message `feat(orders): add inventory availability projection and advisory endpoint`. Do NOT proceed to Phase 2 until the user explicitly asks.
+- [x] Create `database/migrations/2026_11_24_000001_create_orders_inbox_table.php` with the exact Task004 schema, indexes and `orders_inbox_processing_state_is_consistent` check constraint. Add the check constraint with a raw `ALTER TABLE` statement following the existing Outbox and Task004 conventions.
+- [x] Create `database/migrations/2026_11_24_000002_create_orders_inventory_availability_table.php` with the approved columns, `product_id` primary key, non-unique `stock_item_id` index and the three check constraints. Add the checks with raw `ALTER TABLE` statements.
+- [x] Add `'orders' => 'orders_inbox'` to `config/inbox.php`.
+- [x] Implement `InventoryAvailability` with identifier validation, quantity invariants, derived `available()` and UTC normalization. Do not add `aggregateVersion`.
+- [x] Implement `InventoryAvailabilityRepository` and `MySqlInventoryAvailabilityRepository`. Use a simple atomic last-arrival upsert in this phase. Require an active transaction for `apply()` and throw `LogicException` before any query otherwise.
+- [x] Implement `InventoryStockState`, `UpdateInventoryAvailability`, `GetInventoryAvailabilityQuery`, `GetInventoryAvailabilityQueryHandler` and `InventoryAvailabilityResponse`. Do not add `aggregateVersion`.
+- [x] Implement `InventoryStockProjectionSubscriber` with the four event names, version `1`, consumer name, `NoOrderingAggregateVersionPolicy`, payload validation and permanent failure behavior.
+- [x] Implement `InvalidInventoryStockEvent` extending `PermanentIntegrationEventFailure`.
+- [x] Create `OrdersServiceProvider`, bind the repository through `InboxConnectionFactory::connection()`, tag the subscriber as `integration_event_subscriber`, tag the query handler as `query_handler` and register the provider in `bootstrap/providers.php`.
+- [x] Create `routes/orders.php`, register the `orders` prefix in `bootstrap/app.php` and implement `GetInventoryAvailabilityController` with the UUID route constraint, 200 response and 404 Problem Details response.
+- [x] Add the unit, integration and API tests listed above.
+- [x] Create `docs/architecture/orders-inventory-availability-projection.md` and index it in `docs/README.md`. Include the Phase 1 production warning.
+- [x] Run the migrations against the `testing` database.
+- [x] Verify the changes in terms of typechecking, linting and tests using `docker compose exec -T app php vendor/bin/ecs check`, `docker compose exec -T app php vendor/bin/phpstan analyse --no-progress --memory-limit=1G` and `docker compose exec -T app php vendor/bin/phpunit`. Fix issues if any. Do not add or modify PHPStan baseline entries.
+- [x] STOP. Present the changes, migration status and verification results to the user for review. Suggest the commit message `feat(orders): add inventory availability projection and advisory endpoint`. Do NOT proceed to Phase 2 until the user explicitly asks.
 
 #### Verification
 
-- [ ] Run `docker compose exec -T app php artisan migrate --env=testing --force`.
-- [ ] Run `docker compose exec -T app php vendor/bin/phpunit tests/Unit/Orders tests/Integration/Orders tests/Api/Orders`.
-- [ ] Run `docker compose exec -T app php vendor/bin/phpunit` to check the existing suites.
-- [ ] Run `docker compose exec -T app php vendor/bin/ecs check` over every changed path, then over the full project if the changed paths pass.
-- [ ] Run `docker compose exec -T app php vendor/bin/phpstan analyse --no-progress --memory-limit=1G`.
-- [ ] Verify that `phpstan-baseline.neon` was not added to, removed from or modified.
-- [ ] Verify that Orders code does not reference Inventory tables, repositories, Eloquent models or namespaces.
-- [ ] Verify that no commit, push or pull request is created without explicit approval.
+- [x] Run `docker compose exec -T app php artisan migrate --env=testing --force`.
+- [x] Run `docker compose exec -T app php vendor/bin/phpunit tests/Unit/Orders tests/Integration/Orders tests/Api/Orders`.
+- [x] Run `docker compose exec -T app php vendor/bin/phpunit` to check the existing suites.
+- [x] Run `docker compose exec -T app php vendor/bin/ecs check` over every changed path, then over the full project if the changed paths pass.
+- [x] Run `docker compose exec -T app php vendor/bin/phpstan analyse --no-progress --memory-limit=1G`.
+- [x] Verify that `phpstan-baseline.neon` was not added to, removed from or modified.
+- [x] Verify that Orders code does not reference Inventory tables, repositories, Eloquent models or namespaces.
+- [x] Verify that no commit, push or pull request is created without explicit approval.
 
 #### Stop
 
-- [ ] STOP. Present the full diff, migration status and verification results for review. Suggest the commit message `feat(orders): add inventory availability projection and advisory endpoint`. Do not proceed to Phase 2 until the user explicitly asks.
+- [x] STOP. Present the full diff, migration status and verification results for review. Suggest the commit message `feat(orders): add inventory availability projection and advisory endpoint`. Do not proceed to Phase 2 until the user explicitly asks.
+
+#### Phase 1 verification evidence
+
+- `php artisan migrate --env=testing --force`: both Orders migrations ran successfully. `migrate:status` shows them as `Ran`.
+- Targeted `phpunit tests/Unit/Orders tests/Integration/Orders tests/Api/Orders`: 57 tests, 227 assertions, OK.
+- Full `phpunit`: 730 tests, 2,683 assertions, OK.
+- Targeted ECS over every changed path: OK. Full-project ECS still reports the same 46 pre-existing legacy findings in untouched files; none belongs to a changed path.
+- PHPStan level 5: OK, no errors and `phpstan-baseline.neon` unchanged.
+- The projection table has no `aggregate_version` and no persisted `available` column.
+- Orders production code references no Inventory table, repository, Eloquent model or namespace. Only the public event names and payload contract are consumed.
+- Phase 1 still uses the last-arrival upsert and must not be deployed to production before Phase 2.
+- No commit, push or pull request was created before explicit approval.
 
 ### Phase 2: Ordering and failure hardening
 

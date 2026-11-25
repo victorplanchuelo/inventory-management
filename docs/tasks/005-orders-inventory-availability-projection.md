@@ -1,6 +1,6 @@
 # Task 05 — Orders Inventory Availability Projection
 
-**Status:** Proposed  
+**Status:** In progress (Phase 1 pending review)  
 **Scope:** Orders bounded context  
 **Phase:** Cross-Context Read Models
 

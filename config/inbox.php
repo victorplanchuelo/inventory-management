@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 return [
 	'contexts' => [
-		// No production contexts in Task004. Add '<context>' => '<context>_inbox'
-		// together with the context's Inbox migration when its first real consumer
-		// is implemented.
+		'orders' => 'orders_inbox',
 	],
 
 	// Fallback only. InboxExchangeValidator enforces equality with outbox.exchange.

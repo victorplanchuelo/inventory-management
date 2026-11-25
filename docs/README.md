@@ -22,6 +22,7 @@ System structure, domain model and architectural conventions:
 - `architecture/outbox-operations.md`: operational runbook for the Transactional Outbox, publisher supervision, monitoring, retries, retention and purge.
 - `architecture/inbox-operations.md`: operational runbook for per-context Inboxes, idempotent consumers, ordering policies, failure routing, observability, retention and purge.
 - `architecture/inventory-integration-events.md`: public Inventory integration-event catalogue, payloads, mapping, ordering limitations and Outbox guarantees.
+- `architecture/orders-inventory-availability-projection.md`: Orders-owned Inventory availability read model, event mapping, ordering policy and advisory query API.
 
 ## Architecture Decision Records
 
@@ -78,7 +79,8 @@ docs/
 │   ├── architectural-reference.md
 │   ├── outbox-operations.md
 │   ├── inbox-operations.md
-│   └── inventory-integration-events.md
+│   ├── inventory-integration-events.md
+│   └── orders-inventory-availability-projection.md
 ├── adr/
 │   ├── 001-modular-monolith.md
 │   ├── 002-atomic-stock-reservation.md

@@ -50,6 +50,56 @@ Use one entry per task. Keep the log brief and factual.
 
 ## Log
 
+### 2026-11-25 — Task 005 Phase 1: Orders Inventory Availability Projection and Advisory Endpoint
+
+**Objective**
+
+- Create the Orders-owned Inventory availability projection, consume the four Inventory stock events through the Orders Inbox and expose an advisory query endpoint.
+- Deliver only the Phase 1 development happy path; do not make it production-ready or start Phase 2.
+
+**Research**
+
+- Files inspected: Task005, ADR 004 and ADR 005, the Inventory integration-event catalogue, `inbox-operations.md`, `InboxProcessor`, `NoOrderingAggregateVersionPolicy`, `IntegrationEventSubscriber`, `InboxServiceProvider`, `config/inbox.php`, the Inventory event mapper and repository timestamp handling, and the existing Inbox and API test conventions.
+- Existing behavior: no Orders bounded context, provider, routes, migrations or tests existed; the Inbox infrastructure already supported per-context tables and no-ordering consumers.
+- Reused contracts: `InboxProcessor`, `InboxConnectionFactory`, `TransactionalSession`, `NoOrderingAggregateVersionPolicy`, `IntegrationEventSubscriber`, `PermanentIntegrationEventFailure`, the QueryBus and the existing Outbox/Inventory event contracts.
+- Verified facts: Inventory publishes no `aggregateVersion`; every Inventory payload carries the resulting `onHand`, `reserved` and `available`; the Inbox stores the optional envelope `aggregate_version` while the projection must not; `PDO::MYSQL_ATTR_FOUND_ROWS` is not enabled.
+- Hypotheses/risks: last-arrival upserts can regress under out-of-order delivery; Phase 2 must replace the upsert with the strict `sourceOccurredAt` guard before production.
+
+**Approved Plan**
+
+- Files created/modified: both Orders migrations, `InventoryAvailability` and its repository contract, the update and get use cases, `InventoryStockProjectionSubscriber`, `InvalidInventoryStockEvent`, `MySqlInventoryAvailabilityRepository`, `OrdersServiceProvider`, `routes/orders.php`, the controller, `config/inbox.php`, `bootstrap/app.php`, `bootstrap/providers.php`, the unit/integration/API suites, the projection architecture document and the task indexes.
+- Design: one projection row per product; apply every supported event inside the Inbox transaction; validate the payload and derive `available`; expose `GET /orders/inventory-availability/{productId}` with advisory metadata and a 404 Problem Details response that explicitly does not mean zero stock.
+- Planned tests: domain invariants, application orchestration, subscriber mapping and validation, schema constraints, repository persistence and transaction guard, Inbox consumer atomicity and duplicates, and the advisory HTTP contract.
+- Acceptance criteria: `docs/tasks/005-orders-inventory-availability-projection.md`, Phase 1.
+
+**Implementation**
+
+- Changes made: added `orders_inbox` with the exact Task004 schema and `orders_inventory_availability` without `aggregate_version` or persisted `available`; implemented the domain, application, persistence, integration-event and API layers; registered the Orders context and provider; documented the projection, ordering limitation and API contract; updated the Task005 status to `In progress (Phase 1 pending review)`.
+- Decisions taken: the repository requires an active transaction and throws before any query otherwise; the subscriber uses `NoOrderingAggregateVersionPolicy`; malformed events throw `InvalidInventoryStockEvent`; the endpoint never queries Inventory data; the 404 response is advisory and explicitly warns that absence is not zero stock.
+- Discarded changes and reasons: no cross-context query, generic projection framework, Event Sourcing, Redis dependency or order-confirmation behavior; no `aggregateVersion` column or field; no baseline changes.
+
+**Verification**
+
+- Command: `docker compose exec -T app php artisan migrate --env=testing --force`
+- Result: both Orders migrations ran successfully; `migrate:status` reports them as `Ran`.
+- Command: `docker compose exec -T app php vendor/bin/phpunit tests/Unit/Orders tests/Integration/Orders tests/Api/Orders`
+- Result: 57 tests, 227 assertions, OK.
+- Command: `docker compose exec -T app php vendor/bin/phpunit`
+- Result: 730 tests, 2.683 assertions, OK.
+- Command: `docker compose exec -T app php vendor/bin/ecs check` over every changed path
+- Result: OK. The full-project run still reports the same 46 pre-existing legacy findings in untouched files; none belongs to a changed path.
+- Command: `docker compose exec -T app php vendor/bin/phpstan analyse --no-progress --memory-limit=1G`
+- Result: OK, no errors and `phpstan-baseline.neon` unchanged.
+- Repository searches confirmed that Orders production code references no Inventory table, repository, Eloquent model or namespace.
+- Environment: Docker app container with MySQL and RabbitMQ services.
+- Tests not executed and reasons: none.
+
+**Human Review**
+
+- Can I explain the change without assistance? Pending human review.
+- What would I change if I had more time? Add the strict `sourceOccurredAt` guard and real concurrency coverage in Phase 2, then snapshot initialization in Phase 3.
+- What technical debt remains? Phase 1 can regress under out-of-order delivery and must not be deployed to production; OD-002 remains open; Phases 2 and 3 are pending; the Phase 1 commit is created only after explicit approval.
+
 ### 2026-11-24 — Task 006 Phase 4: Multi-Product Reservations and Delivery Closure
 
 **Objective**

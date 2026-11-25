@@ -1,6 +1,6 @@
 # Task 006 — Inventory Persistence and Stock Reservation
 
-**Status:** Implemented (pending review)
+**Status:** Verified
 
 **Bounded Context:** Inventory
 
@@ -638,14 +638,14 @@ The implementation must provide a reliable Inventory persistence foundation with
 
 ## 16. Delivery Record
 
-**Implementation status:** Implemented; pending explicit technical review approval.
+**Implementation status:** Verified; technical review approved.
 
 **Delivered phases:**
 
 - Phase 1: Inventory-owned MySQL persistence for complete `StockItem` aggregates and their reservations. Committed as `7f4e289`.
 - Phase 2: Transactional registration and stock addition with atomic Outbox recording and bounded retries. Committed as `3f8d105`.
 - Phase 3: Row-locked single-product reservation and release with Outbox recording and real MySQL concurrency tests. Committed as `7f4cd1e`.
-- Phase 4: Atomic multi-product reservations with deterministic lock ordering, batch retry verification, the public Inventory integration-event catalogue and Task006 closure documentation. Implemented and verified locally on 2026-11-24; not committed.
+- Phase 4: Atomic multi-product reservations with deterministic lock ordering, batch retry verification, the public Inventory integration-event catalogue and Task006 closure documentation. Committed as `48fc444`.
 
 **Implementation summary:**
 
@@ -664,12 +664,10 @@ The implementation must provide a reliable Inventory persistence foundation with
 - PHPStan level 5: OK, no errors and `phpstan-baseline.neon` unchanged.
 - The batch handler is tagged as `command_handler`; no new repository, transaction or publisher abstraction was introduced.
 - No Orders, Catalog or User persistence is accessed. No cross-context transaction, Event Sourcing, warehouse support, Redis or generic workflow engine was introduced.
-- The full applicable test suite was executed, not inferred. No commit, push or pull request was created for Phase 4 without explicit approval.
+- The full applicable test suite was executed, not inferred. Phase 4 and the documentation changes were committed as `48fc444` after technical review approval.
 
-**Acceptance criteria:** all items in section 13 are checked. The task must not be marked `Verified` until the explicit technical review approval is recorded.
+**Acceptance criteria:** all items in section 13 are checked. The technical review was approved and the task is `Verified`.
 
-**Pending:**
+**Open items:**
 
-- Explicit technical review approval.
-- Commit of Phase 4 and the documentation changes.
 - OD-001, OD-002 and OD-006 remain open as documented in `docs/architecture/open-decisions.md`.

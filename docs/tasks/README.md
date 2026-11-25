@@ -12,8 +12,8 @@ Each task describes a bounded piece of work derived from the project requirement
 | 002 | `002-shared-domain-event-compatibility-and-test-structure.md` | UUID aggregate identifiers, shared domain-event compatibility and test structure. | Verified |
 | 003 | `003-transactional-outbox-and-integration-infrastructure.md` | Transactional Outbox and reliable RabbitMQ publication. | Verified |
 | 004 | `004-inbox-idempotent-consumers-and-event-ordering.md` | Idempotent message consumption, Inbox and event ordering. | Verified |
-| 005 | `005-orders-inventory-availability-projection.md` | Orders-owned Inventory availability projection and advisory queries. | Proposed |
-| 006 | `006-inventory-persistence-and-stock-reservation.md` | Inventory persistence and Stock Reservation. | Implemented (pending review) |
+| 005 | `005-orders-inventory-availability-projection.md` | Orders-owned Inventory availability projection and advisory queries. | In progress (Phase 1 pending review) |
+| 006 | `006-inventory-persistence-and-stock-reservation.md` | Inventory persistence and Stock Reservation. | Verified |
 
 The table describes the documents currently present. It is not a commitment to execute tasks in numerical order. Execution order must respect the actual dependencies and the implementation plan approved for each task.
 
@@ -21,11 +21,13 @@ The table describes the documents currently present. It is not a commitment to e
 
 **Task 004 verification note:** `Verified` means that the automated checks and acceptance criteria were verified on 2026-11-18 and the technical review was approved on 2026-11-19. The implementation is committed as `93bb52c` on `feature/stockflow-foundation` and has not been pushed.
 
-**Task 006 implementation note:** Task006 phases 1 to 3 are committed as `7f4e289`, `3f8d105` and `7f4cd1e` on `feature/stockflow-foundation`. Phase 4 and the final documentation are implemented and verified locally on 2026-11-24 but are not committed. Task006 remains `Implemented (pending review)` until the explicit technical review approval is recorded.
+**Task 006 verification note:** Task006 phases 1 to 4 are committed as `7f4e289`, `3f8d105`, `7f4cd1e` and `48fc444` on `feature/stockflow-foundation`. The technical review was approved and the task is `Verified`.
 
-**Current implementation focus:** Task006 is implemented and awaiting technical review.
+**Task 005 implementation note:** Phase 1 is implemented and verified locally on 2026-11-25. Phase 1 is a development happy path and must not be deployed to production before Phase 2 adds the strict `sourceOccurredAt` guard. Phases 2 and 3 remain pending.
 
-Tasks 001, 002, 003, 004 and 006 have been implemented. Tasks 001, 002, 003 and 004 have been reviewed and committed; only Task 003 has been pushed. Task 005 remains proposed and requires explicit approval before implementation starts. Task006 must not be marked `Verified` until the technical review is approved.
+**Current implementation focus:** Task005 Phase 1 is implemented and awaiting technical review.
+
+Tasks 001, 002, 003, 004 and 006 are `Verified`. Only Task 003 has been pushed. Task 005 is in progress: Phase 1 is implemented and awaiting review, while Phases 2 and 3 remain pending.
 
 Future capabilities must not be treated as current implementation scope merely because they appear in requirements, ADRs or proposed task documents.
 
